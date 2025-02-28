@@ -22,10 +22,4 @@ def main():
     # Print performance metrics
     print(f"\nPerformance metrics:")
     print(f"Retention rate: {retention_rate:.2%}")
-    print(f"Execution time: {execution_time:.3f} seconds")
-
-    # Show final configuration comparison if needed
-    # simulator.visualize_lattices()  # Uncomment this line if you want to see the before/after comparison
-
-if __name__ == "__main__":
-    main()
+    print(f"

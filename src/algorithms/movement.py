@@ -42,7 +42,7 @@ class MovementManager:
         
         return total_time
     
-    def move_atom_with_constraints(self, from_pos: Tuple[int, int], to_pos: Tuple[int, int]) -> float:
+    def move_atom_with_constraints(self, from_pos: Tuple[int, int], to_pos: Tuple[int, int]) -> Tuple[float, bool]:
         """
         Move an atom from one position to another, accounting for physical constraints.
         
@@ -51,8 +51,18 @@ class MovementManager:
             to_pos: Target position (row, col)
             
         Returns:
-            Total time required for the movement in seconds
+            Tuple of (total_time, success) where success is False if atom was lost during transfer
         """
+        # Check for trap transfer success (two transfers: one at start, one at end)
+        # Each transfer has TRAP_TRANSFER_FIDELITY probability of success
+        transfer_success = np.random.random() < self.simulator.TRAP_TRANSFER_FIDELITY**2
+        
+        if not transfer_success:
+            # Atom was lost during transfer
+            self.simulator.field[from_pos[0], from_pos[1]] = 0  # Remove the atom
+            self.simulator.total_transfer_time += 2 * self.simulator.TRAP_TRANSFER_TIME
+            return 2 * self.simulator.TRAP_TRANSFER_TIME, False
+        
         # Apply trap transfer time (once at the beginning and once at the end)
         transfer_time = 2 * self.simulator.TRAP_TRANSFER_TIME
         
@@ -77,7 +87,7 @@ class MovementManager:
         self.simulator.total_transfer_time += transfer_time
         self.simulator.movement_time += movement_time
         
-        return total_time
+        return total_time, True
     
     def move_atom_through_path(self, start_pos: Tuple[int, int], intermediate_pos: Tuple[int, int], 
                              end_pos: Tuple[int, int]) -> float:
@@ -94,8 +104,11 @@ class MovementManager:
             Total time required for the movement in seconds
         """
         # Move to intermediate position
-        first_move_time = self.move_atom_with_constraints(start_pos, intermediate_pos)
+        first_move_time, first_success = self.move_atom_with_constraints(start_pos, intermediate_pos)
         
+        if not first_success:
+            return first_move_time  # Atom was lost during first move
+            
         # Record the movement in history
         self.simulator.movement_history.append({
             'type': 'parallel_left' if intermediate_pos[1] < start_pos[1] else 'parallel_right'
@@ -108,8 +121,11 @@ class MovementManager:
         })
         
         # Move to final position
-        second_move_time = self.move_atom_with_constraints(intermediate_pos, end_pos)
+        second_move_time, second_success = self.move_atom_with_constraints(intermediate_pos, end_pos)
         
+        if not second_success:
+            return first_move_time + second_move_time  # Atom was lost during second move
+            
         # Record the movement in history
         self.simulator.movement_history.append({
             'type': 'parallel_left' if end_pos[1] < intermediate_pos[1] else 'parallel_right'
@@ -156,19 +172,29 @@ class MovementManager:
                 
                 if target_x < x:  # Found a valid left move
                     to_pos = (y, target_x)
-                    # Calculate the movement time for this atom
-                    movement_distance = (x - target_x) * self.simulator.SITE_DISTANCE
-                    movement_time = self.calculate_movement_time(movement_distance)
-                    transfer_time = 2 * self.simulator.TRAP_TRANSFER_TIME  # Transfer at start and end
-                    total_time = movement_time + transfer_time
                     
-                    moves.append((atom_pos, to_pos, total_time))
-                    self.simulator.field[y, x] = 0
-                    self.simulator.field[y, target_x] = 1
-                    made_moves = True
+                    # Check for trap transfer success
+                    # Each movement requires two transfers (one at start, one at end)
+                    transfer_success = np.random.random() < self.simulator.TRAP_TRANSFER_FIDELITY**2
                     
-                    # Track the physical time for the batch (use the longest time)
-                    total_batch_time = max(total_batch_time, total_time)
+                    if transfer_success:
+                        # Calculate the movement time for this atom
+                        movement_distance = (x - target_x) * self.simulator.SITE_DISTANCE
+                        movement_time = self.calculate_movement_time(movement_distance)
+                        transfer_time = 2 * self.simulator.TRAP_TRANSFER_TIME  # Transfer at start and end
+                        total_time = movement_time + transfer_time
+                        
+                        moves.append((atom_pos, to_pos, total_time))
+                        self.simulator.field[y, x] = 0
+                        self.simulator.field[y, target_x] = 1
+                        made_moves = True
+                        
+                        # Track the physical time for the batch (use the longest time)
+                        total_batch_time = max(total_batch_time, total_time)
+                    else:
+                        # Atom was lost during transfer
+                        self.simulator.field[y, x] = 0
+                        self.simulator.total_transfer_time += 2 * self.simulator.TRAP_TRANSFER_TIME
             
             if moves:
                 # Update the total time counters
@@ -211,19 +237,29 @@ class MovementManager:
                 
                 if target_y < y:  # Found a valid up move
                     to_pos = (target_y, x)
-                    # Calculate the movement time for this atom
-                    movement_distance = (y - target_y) * self.simulator.SITE_DISTANCE
-                    movement_time = self.calculate_movement_time(movement_distance)
-                    transfer_time = 2 * self.simulator.TRAP_TRANSFER_TIME  # Transfer at start and end
-                    total_time = movement_time + transfer_time
                     
-                    moves.append((atom_pos, to_pos, total_time))
-                    self.simulator.field[y, x] = 0
-                    self.simulator.field[target_y, x] = 1
-                    made_moves = True
+                    # Check for trap transfer success
+                    # Each movement requires two transfers (one at start, one at end)
+                    transfer_success = np.random.random() < self.simulator.TRAP_TRANSFER_FIDELITY**2
                     
-                    # Track the physical time for the batch (use the longest time)
-                    total_batch_time = max(total_batch_time, total_time)
+                    if transfer_success:
+                        # Calculate the movement time for this atom
+                        movement_distance = (y - target_y) * self.simulator.SITE_DISTANCE
+                        movement_time = self.calculate_movement_time(movement_distance)
+                        transfer_time = 2 * self.simulator.TRAP_TRANSFER_TIME  # Transfer at start and end
+                        total_time = movement_time + transfer_time
+                        
+                        moves.append((atom_pos, to_pos, total_time))
+                        self.simulator.field[y, x] = 0
+                        self.simulator.field[target_y, x] = 1
+                        made_moves = True
+                        
+                        # Track the physical time for the batch (use the longest time)
+                        total_batch_time = max(total_batch_time, total_time)
+                    else:
+                        # Atom was lost during transfer
+                        self.simulator.field[y, x] = 0
+                        self.simulator.total_transfer_time += 2 * self.simulator.TRAP_TRANSFER_TIME
             
             if moves:
                 # Update the total time counters
@@ -1291,7 +1327,7 @@ class MovementManager:
     def move_under_atoms_up(self) -> bool:
         """
         Moves all atoms that are under the target grid upward in parallel into the target grid.
-        Each atom will move straight up to the highest available position, ensuring no overlap.
+        Each atom will move straight up to the highest available position.
         
         Returns:
             bool: True if any atoms were moved, False otherwise
@@ -1328,31 +1364,23 @@ class MovementManager:
         
         # Process each column
         for col, atoms in atoms_by_column.items():
-            # Sort atoms from top to bottom (important for finding correct target positions)
+            # Sort atoms in column from top to bottom
             atoms.sort(key=lambda pos: pos[0])
             
-            # Find the lowest empty position in the target zone for this column
-            available_positions = []
-            current_row = end_row - 1  # Start from bottom of target zone
+            # For each atom, find the highest position it can reach
+            available_row = end_row - 1  # Start from bottom of target zone
             
-            # Collect all available positions in this column from bottom to top
-            while current_row >= start_row:
-                if current_state[current_row, col] == 0:
-                    available_positions.append(current_row)
-                current_row -= 1
-            
-            # Reverse to have positions ordered from top to bottom
-            available_positions.reverse()
-            
-            # Match atoms to available positions, ensuring proper spacing
-            for i, atom_pos in enumerate(atoms):
-                if i >= len(available_positions):
-                    break  # No more available positions in this column
-                    
+            for atom_pos in atoms:
                 row, _ = atom_pos
-                target_row = available_positions[i]
                 
-                # Only move if we're actually going up
+                # Find highest empty position in this column
+                target_row = available_row
+                while target_row > start_row:
+                    if current_state[target_row - 1, col] == 1:
+                        break
+                    target_row -= 1
+                
+                # If we can move up, add the move
                 if target_row < row:
                     to_pos = (target_row, col)
                     
@@ -1368,6 +1396,9 @@ class MovementManager:
                     # Update planning state
                     current_state[row, col] = 0
                     current_state[target_row, col] = 1
+                    
+                    # Update available row for next atom in this column
+                    available_row = target_row + 1
         
         # Execute all moves if any were found
         if moves:

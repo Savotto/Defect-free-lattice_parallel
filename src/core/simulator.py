@@ -77,51 +77,26 @@ class LatticeSimulator:
     
     def rearrange_atoms(self, show_visualization: bool = True) -> Tuple[np.ndarray, float, float]:
         """
-        Rearrange atoms using AOD trap movements to create a defect-free lattice.
+        Rearrange atoms using a three-phase approach with parallel movements.
+        
         Args:
             show_visualization: Whether to show the animation of the rearrangement process
         Returns:
             Tuple of (target_lattice, retention_rate, execution_time)
         """
-        start_time = time.time()
-        self.movement_history = []
-        
-        # Store initial atom count
-        initial_atoms = self.total_atoms
-        target_square_size = self.side_length * self.side_length
-        
-        print(f"\nRearranging {initial_atoms} atoms to form {self.side_length}x{self.side_length} square...")
-        
-        # First move atoms towards top-left using parallel movements
-        self.movement_manager.move_atoms_with_constraints()
-        
-        # Then ensure perfect lattice formation
-        if np.sum(self.field) >= target_square_size:  # Only if we have enough atoms
-            self.movement_manager.fill_target_region()
-        
-        # Animate the rearrangement only if visualization is enabled
-        if show_visualization and hasattr(self, 'visualizer'):
+        # Delegate to the movement manager's new implementation
+        return self.movement_manager.rearrange_atoms(show_visualization)
+    
+    def animate_rearrangement(self) -> None:
+        """Animate the rearrangement process if visualization module is imported."""
+        if hasattr(self, 'visualizer'):
             self.visualizer.animate_rearrangement()
-        
-        # Get final configuration
-        start_row = (self.field_size[0] - self.initial_size[0]) // 2
-        start_col = (self.field_size[1] - self.initial_size[1]) // 2
-        
-        # Count atoms in target square region
-        target_region = self.field[start_row:start_row+self.side_length, 
-                               start_col:start_col+self.side_length]
-        atoms_in_target = np.sum(target_region)
-        
-        # Calculate true retention rate: atoms in target square / initial atoms
-        retention_rate = atoms_in_target / initial_atoms
-        
-        execution_time = time.time() - start_time
-        self.target_lattice = self.field.copy()
-        
-        # Print summary of physical timing constraints
-        print(f"\nPhysical timing constraints:")
-        print(f"Total trap transfer time: {self.total_transfer_time*1000:.3f} ms")
-        print(f"Total movement time: {self.movement_time*1000:.3f} ms")
-        print(f"Combined time: {(self.total_transfer_time + self.movement_time)*1000:.3f} ms")
-        
-        return self.target_lattice, retention_rate, execution_time
+        else:
+            print("Visualization module not initialized. Please import and initialize the visualizer first.")
+            
+    def visualize_lattices(self) -> None:
+        """Visualize initial and target lattice side by side if visualization module is imported."""
+        if hasattr(self, 'visualizer'):
+            self.visualizer.visualize_lattices()
+        else:
+            print("Visualization module not initialized. Please import and initialize the visualizer first.")

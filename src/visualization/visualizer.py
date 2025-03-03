@@ -38,6 +38,15 @@ class LatticeVisualizer:
             start_row = (self.simulator.field_size[0] - self.simulator.initial_size[0]) // 2
             start_col = (self.simulator.field_size[1] - self.simulator.initial_size[1]) // 2
             
+            # Highlight target region
+            target_row_end = start_row + self.simulator.side_length
+            target_col_end = start_col + self.simulator.side_length
+            target_rect = plt.Rectangle((start_col-0.5, start_row-0.5), 
+                                      self.simulator.side_length, self.simulator.side_length,
+                                      facecolor='lightgreen', edgecolor='green',
+                                      linestyle='-', linewidth=2, alpha=0.2)
+            ax.add_patch(target_rect)
+            
             # Plot SLM traps as circles
             for i in range(self.simulator.initial_size[0]):
                 for j in range(self.simulator.initial_size[1]):
@@ -57,7 +66,9 @@ class LatticeVisualizer:
                     ax.add_patch(circle)
             
             # Draw active AOD trap lines
-            if movement['type'] == 'parallel_left':
+            movement_type = movement['type']
+            
+            if movement_type == 'parallel_left' or movement_type == 'parallel_right':
                 # Draw complete row lines for each moving atom
                 for from_pos, to_pos in movement['moves']:
                     y = from_pos[0]
@@ -69,7 +80,7 @@ class LatticeVisualizer:
                     ax.axvline(x=to_pos[1], color='red', linestyle='-',
                              linewidth=1.5, alpha=0.5, zorder=2)
                     
-            else:  # parallel_up
+            elif movement_type == 'parallel_up' or movement_type == 'parallel_down':
                 # Draw complete column lines for each moving atom
                 for from_pos, to_pos in movement['moves']:
                     x = from_pos[1]
@@ -80,6 +91,16 @@ class LatticeVisualizer:
                              linewidth=1.5, alpha=0.5, zorder=2)
                     ax.axhline(y=to_pos[0], color='red', linestyle='-',
                              linewidth=1.5, alpha=0.5, zorder=2)
+                    
+            elif movement_type == 'parallel_up_left' or movement_type == 'parallel_down_right':
+                # Draw both vertical and horizontal lines for diagonal movements
+                for from_pos, to_pos in movement['moves']:
+                    # Vertical component
+                    ax.axvline(x=from_pos[1], color='red', linestyle='-',
+                             linewidth=1, alpha=0.3, zorder=1)
+                    # Horizontal component
+                    ax.axhline(y=to_pos[0], color='red', linestyle='-',
+                             linewidth=1, alpha=0.3, zorder=1)
             
             # Draw movement arrows and atoms
             for from_pos, to_pos in movement['moves']:
@@ -103,10 +124,20 @@ class LatticeVisualizer:
                                        linewidth=2)
                 ax.add_patch(destination)
             
+            # Get movement description
+            movement_descriptions = {
+                'parallel_left': 'Left',
+                'parallel_right': 'Right',
+                'parallel_up': 'Up',
+                'parallel_down': 'Down',
+                'parallel_up_left': 'Up-Left',
+                'parallel_left_down': 'Left-Down'
+            }
+            move_desc = movement_descriptions.get(movement_type, movement_type.replace('parallel_', '').capitalize())
+            
             # Add step information
             info_text = [
-                f'Step {movement["iteration"]}: '
-                f'{"Left" if movement["type"] == "parallel_left" else "Up"} Movement',
+                f'Step {movement["iteration"]}: {move_desc} Movement',
                 f'Moving {len(movement["moves"])} atoms in parallel',
                 f'Movement time: {movement.get("time", 0)*1000:.3f} ms',
                 f'Frame: {frame + 1}/{len(self.simulator.movement_history)}'
@@ -120,7 +151,7 @@ class LatticeVisualizer:
             
             ax.set_xlim(-0.5, self.simulator.field_size[1] - 0.5)
             ax.set_ylim(self.simulator.field_size[0] - 0.5, -0.5)
-            ax.set_title('Parallel Atom Movement Sequence')
+            ax.set_title('Three-Phase Atom Rearrangement')
         
         # Create animation with longer interval to see movements clearly
         anim = animation.FuncAnimation(fig, update, frames=len(self.simulator.movement_history),

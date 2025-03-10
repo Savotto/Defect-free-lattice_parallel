@@ -134,13 +134,33 @@ class LatticeVisualizer:
                             highlight_region=self.simulator.movement_manager.target_region,
                             ax=ax)
             
+            # Draw arrows for movements in the current frame
+            if frame > 0:
+                move_dict = movements[frame-1]
+                if 'moves' in move_dict:
+                    print(f"Drawing {len(move_dict['moves'])} arrows for frame {frame}")  # Debug output
+                    for move in move_dict['moves']:
+                        if isinstance(move, dict) and 'from' in move and 'to' in move:
+                            start_row, start_col = move['from']
+                            end_row, end_col = move['to']
+                            # Make the arrows more prominent
+                            ax.arrow(start_col, start_row, 
+                                   end_col - start_col, end_row - start_row,
+                                   head_width=0.3, head_length=0.3, 
+                                   fc='red', ec='red',
+                                   length_includes_head=True, 
+                                   alpha=0.8, linestyle='-',
+                                   linewidth=2.0, zorder=10)
+            
             # Add frame information at the bottom
             if frame > 0:
                 move_info = movements[frame-1]
+                arrow_count = len([m for m in move_info.get('moves', []) 
+                                 if isinstance(m, dict) and 'from' in m and 'to' in m])
                 ax.text(0.02, 0.02, 
                        f"Time: {move_info.get('time', 0)*1000:.3f} ms | "
                        f"Type: {move_info.get('type', 'unknown')} | "
-                       f"Moves: {len(move_info.get('moves', []))}",
+                       f"Moves: {arrow_count}", 
                        transform=ax.transAxes, fontsize=10, 
                        bbox=dict(facecolor='white', alpha=0.7))
             
@@ -303,4 +323,97 @@ class LatticeVisualizer:
         if save_path:
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
             
+        return fig
+
+    def visualize_movement_opportunities(self, highlight_unreachable: bool = True):
+        """
+        Visualize potential movement opportunities and unreachable defects.
+        
+        This helps diagnose issues with the movement algorithm, particularly
+        when atoms aren't moving to seemingly available spots.
+        
+        Args:
+            highlight_unreachable: Whether to highlight unreachable defects
+            
+        Returns:
+            Matplotlib figure
+        """
+        if self.simulator.movement_manager.target_region is None:
+            print("Target region not defined.")
+            return None
+            
+        fig, ax = plt.subplots(figsize=(12, 12))
+        
+        # Plot current lattice state
+        self.plot_lattice(self.simulator.target_lattice, 
+                         title="Movement Opportunity Analysis", 
+                         highlight_region=self.simulator.movement_manager.target_region,
+                         ax=ax)
+        
+        # Extract target region
+        start_row, start_col, end_row, end_col = self.simulator.movement_manager.target_region
+        target_area = self.simulator.target_lattice[start_row:end_row, start_col:end_col]
+        
+        # Find defects (empty spots) in the target region
+        defect_positions = np.where(target_area == 0)
+        defect_positions = [(start_row + r, start_col + c) for r, c in zip(defect_positions[0], defect_positions[1])]
+        
+        # Find atoms outside target region that could be moved
+        lattice = self.simulator.target_lattice.copy()
+        # Create a mask for the target region
+        mask = np.zeros_like(lattice, dtype=bool)
+        mask[start_row:end_row, start_col:end_col] = True
+        
+        # Find atoms outside target region
+        outside_atoms = np.where((lattice == 1) & (~mask))
+        outside_atoms = [(r, c) for r, c in zip(outside_atoms[0], outside_atoms[1])]
+        
+        # For each outside atom, find the closest defect and check if it's reachable
+        for atom_r, atom_c in outside_atoms:
+            # Find the closest defect
+            distances = [(defect_r, defect_c, abs(defect_r - atom_r) + abs(defect_c - atom_c)) 
+                        for defect_r, defect_c in defect_positions]
+            if not distances:
+                continue
+                
+            # Sort by distance
+            distances.sort(key=lambda x: x[2])
+            closest_defect = distances[0]
+            defect_r, defect_c, dist = closest_defect
+            
+            # Determine if movement is possible (simplified check - just checking if same row or column)
+            reachable = (atom_r == defect_r) or (atom_c == defect_c)
+            
+            # Draw a line from atom to closest defect
+            line_color = 'green' if reachable else 'red'
+            line_style = '-' if reachable else ':'
+            ax.plot([atom_c, defect_c], [atom_r, defect_r], 
+                   color=line_color, linestyle=line_style, alpha=0.6, linewidth=1.5,
+                   marker='', zorder=3)
+            
+            # Highlight the defect
+            if highlight_unreachable and not reachable:
+                defect_circle = plt.Circle((defect_c, defect_r), 0.3,
+                                         facecolor='none', edgecolor='red',
+                                         linewidth=2, linestyle='--')
+                ax.add_patch(defect_circle)
+        
+        # Add legend
+        from matplotlib.lines import Line2D
+        legend_elements = [
+            Line2D([0], [0], color='green', lw=1.5, label='Reachable path'),
+            Line2D([0], [0], color='red', lw=1.5, linestyle=':', label='Unreachable path')
+        ]
+        ax.legend(handles=legend_elements, loc='upper right')
+        
+        # Add information text
+        info_text = (
+            f"Target region defects: {len(defect_positions)}\n"
+            f"Atoms outside target: {len(outside_atoms)}"
+        )
+        ax.text(0.02, 0.02, info_text,
+               transform=ax.transAxes, fontsize=10,
+               bbox=dict(facecolor='white', alpha=0.7))
+        
+        plt.tight_layout()
         return fig

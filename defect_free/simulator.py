@@ -86,7 +86,7 @@ class LatticeSimulator:
         
         return self.field
         
-    def rearrange_for_defect_free(self, show_visualization=True):
+    def rearrange_for_defect_free(self, show_visualization=True, parallel=True) -> Tuple[np.ndarray, float, float]:
         """
         Rearrange atoms to create a defect-free region.
         
@@ -116,7 +116,7 @@ class LatticeSimulator:
         print(f"Using {self.side_length * self.side_length} atoms out of {total_atoms} available")
         
         # Perform row-wise centering algorithm
-        result = self.movement_manager.row_wise_centering(show_visualization=show_visualization)
+        result = self.movement_manager.combined_filling_strategy(show_visualization=show_visualization)
         
         # Add execution time tracking
         execution_time = time.time() - start_time

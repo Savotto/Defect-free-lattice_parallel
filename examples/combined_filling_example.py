@@ -12,28 +12,28 @@ def main():
     # Using a fixed random seed for reproducible results
     np.random.seed(42)
     
-    # Create simulator with initial 20x20 lattice and 50% occupation probability
-    simulator = LatticeSimulator(initial_size=(100, 100), occupation_prob=0.50)
+    # Step 1: Initialize the lattice
+    # Create simulator with initial 100x100 lattice and 50% occupation probability
+    simulator = LatticeSimulator(initial_size=(100, 100), occupation_prob=0.70)
     simulator.generate_initial_lattice()
     
-    # Calculate the optimal target zone size
+    # Step 2: Calculate the maximum possible target size based on available atoms
     initial_atoms = np.sum(simulator.slm_lattice)
-    # Use a carefully calibrated target size to optimize fill rate
-    # 90% of available atoms should be sufficient to create a nearly perfect square
-    target_atoms = int(initial_atoms * 0.9)
-    max_square_size = int(np.floor(np.sqrt(target_atoms)))
-    simulator.side_length = max_square_size
+    print(f"Total available atoms: {initial_atoms}")
     
-    print(f"Using target zone size {simulator.side_length}x{simulator.side_length}")
-    print(f"(Requiring {simulator.side_length**2} atoms out of {initial_atoms} available)")
-    print(f"Target utilization: {simulator.side_length**2 / initial_atoms:.1%} of available atoms")
+    # Calculate maximum square size using ALL available atoms (no utilization factor)
+    max_square_size = simulator.calculate_max_defect_free_size()
     
-    # Initialize visualizer
+    print(f"Calculated maximum target zone: {max_square_size}x{max_square_size}")
+    print(f"This requires {max_square_size**2} atoms out of {initial_atoms} available")
+    print(f"Using {max_square_size**2} atoms for a perfect square")
+    
+    # Initialize visualizer for tracking the rearrangement
     visualizer = LatticeVisualizer(simulator)
     simulator.visualizer = visualizer
     
-    # Print initial configuration
-    print("Initial lattice configuration:")
+    # Print initial configuration before rearrangement
+    print("\nInitial configuration before rearrangement:")
     print(f"Number of atoms: {initial_atoms}")
     print(f"Target zone size: {simulator.side_length}x{simulator.side_length}")
     
@@ -44,10 +44,11 @@ def main():
     visualizer.plot_lattice(initial_lattice, title="Initial Lattice")
     plt.show(block=False)
     
-    # Apply the combined filling strategy
+    # Step 3: Apply rearrangement methods to make the target region defect-free
+    # This will be executed in the combined_filling_strategy below
     print("\nApplying combined filling strategy...")
     final_lattice, fill_rate, execution_time = simulator.movement_manager.combined_filling_strategy(
-        show_visualization=True
+        show_visualization=False
     )
     
     # Store the final state

@@ -11,10 +11,10 @@ class LatticeSimulator:
     Simulates a quantum atom lattice with physical constraints.
     """
     # Physical constants
-    SITE_DISTANCE = 15.0  # μm
+    SITE_DISTANCE = 5.0  # μm
     MAX_ACCELERATION = 2750.0  # m/s²
     TRAP_TRANSFER_TIME = 15e-6  # seconds (15μs)
-    TRAP_TRANSFER_FIDELITY = 1.0  # 100% fidelity for now (testing)
+    TRAP_TRANSFER_FIDELITY = 0.999  # 100% fidelity for now (testing)
     
     def __init__(self, 
                  initial_size: Tuple[int, int] = (50, 50),
@@ -86,14 +86,41 @@ class LatticeSimulator:
         
         return self.field
         
-    def rearrange_for_defect_free(self, show_visualization=True, parallel=True) -> Tuple[np.ndarray, float, float]:
+    def calculate_max_defect_free_size(self) -> int:
         """
-        Rearrange atoms to create a defect-free region.
+        Calculate the maximum possible size of a defect-free square lattice based on available atoms.
+        Uses ALL available atoms with no utilization factor.
+        
+        Returns:
+            The side length of the maximum possible square lattice
+        """
+        # Count total atoms in the field
+        total_atoms = np.sum(self.field)
+        
+        # Calculate the largest possible square that can be formed with available atoms
+        # For example: 15 atoms → 3×3 square (9 atoms used)
+        #              17 atoms → 4×4 square (16 atoms used)
+        max_square_size = int(np.floor(np.sqrt(total_atoms)))
+        
+        # Update the side_length attribute
+        self.side_length = max_square_size
+        
+        return max_square_size
+    
+    def rearrange_for_defect_free(self, show_visualization=True) -> Tuple[np.ndarray, float, float]:
+        """
+        Rearrange atoms to create a defect-free region using the combined filling strategy.
         
         This method performs the complete atom rearrangement process:
         1. Determine the optimal target region based on available atoms
         2. Calculate the maximum possible defect-free square
-        3. Apply row-wise centering to create the defect-free region
+        3. Apply the comprehensive combined filling strategy to create the defect-free region
+        
+        The combined filling strategy:
+        - First applies row-wise centering to create initial structure
+        - Then applies column-wise centering to improve the structure
+        - Next iteratively spreads and squeezes atoms until optimal arrangement
+        - Finally repairs remaining defects from the center outwards
         
         Args:
             show_visualization: Whether to show animation
@@ -107,16 +134,22 @@ class LatticeSimulator:
         self.movement_history = []
         self.movement_time = 0.0
         
+        print("Step 1: Determining optimal target region size...")
         # Determine target region size based on atom count
         total_atoms = np.sum(self.field)
         max_square_size = int(np.floor(np.sqrt(total_atoms)))
         self.side_length = min(max_square_size, self.side_length)
         
+        print(f"Step 2: Calculated maximum defect-free square: {self.side_length}x{self.side_length}")
         print(f"Creating defect-free region of size {self.side_length}x{self.side_length}")
         print(f"Using {self.side_length * self.side_length} atoms out of {total_atoms} available")
         
-        # Perform row-wise centering algorithm
-        result = self.movement_manager.combined_filling_strategy(show_visualization=show_visualization)
+        # Always use the combined filling strategy
+        print("Step 3: Applying combined filling strategy...")
+        print("Using combined filling strategy")
+        result = self.movement_manager.combined_filling_strategy(
+            show_visualization=show_visualization
+        )
         
         # Add execution time tracking
         execution_time = time.time() - start_time

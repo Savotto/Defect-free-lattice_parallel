@@ -68,3 +68,4 @@ python -m pytest tests/
 - Python >= 3.8
 - NumPy >= 1.20.0
 - Matplotlib >= 3.4.0
+

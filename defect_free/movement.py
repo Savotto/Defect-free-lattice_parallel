@@ -1229,6 +1229,16 @@ class MovementManager:
         print("\nCombined filling strategy starting...")
         target_start_row, target_start_col, target_end_row, target_end_col = self.target_region
         
+        # Check if target zone is already defect-free
+        target_region = self.simulator.field[target_start_row:target_end_row, 
+                                            target_start_col:target_end_col]
+        initial_defects = np.sum(target_region == 0)
+        if initial_defects == 0:
+            print("Target zone is already defect-free! No movements needed.")
+            self.simulator.target_lattice = self.simulator.field.copy()
+            execution_time = time.time() - start_time
+            return self.simulator.target_lattice, 1.0, execution_time
+        
         # Step 1: Row-wise centering - creates basic structure
         print("\nStep 1: Applying row-wise centering...")
         row_start_time = time.time()

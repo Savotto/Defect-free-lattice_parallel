@@ -14,14 +14,14 @@ def main():
     
     # Step 1: Initialize the lattice
     # Create simulator with initial 100x100 lattice and 50% occupation probability
-    simulator = LatticeSimulator(initial_size=(100, 100), occupation_prob=1.0)
+    simulator = LatticeSimulator(initial_size=(20, 20), occupation_prob=0.70)
     simulator.generate_initial_lattice()
     
     # Step 2: Calculate the maximum possible target size based on available atoms
     initial_atoms = np.sum(simulator.slm_lattice)
     print(f"Total available atoms: {initial_atoms}")
     
-    # Calculate maximum square size using ALL available atoms (no utilization factor)
+    # Calculate maximum square size using ALL available atoms
     max_square_size = simulator.calculate_max_defect_free_size()
     
     print(f"Calculated maximum target zone: {max_square_size}x{max_square_size}")
@@ -48,7 +48,7 @@ def main():
     # This will be executed in the combined_filling_strategy below
     print("\nApplying combined filling strategy...")
     final_lattice, fill_rate, execution_time = simulator.movement_manager.combined_filling_strategy(
-        show_visualization=False
+        show_visualization=True
     )
     
     # Store the final state

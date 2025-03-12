@@ -164,6 +164,48 @@ class MovementManager:
         
         return self.simulator.target_lattice, retention_rate, execution_time
     
+    def apply_transport_efficiency(self, moves, working_field):
+        """
+        Apply transport efficiency to a list of moves.
+        Some atoms may be lost during transport based on the trap_transfer_fidelity.
+        
+        Args:
+            moves: List of move dictionaries with 'from' and 'to' positions
+            working_field: Current state of the field
+            
+        Returns:
+            Tuple of (updated_field, successful_moves, failed_moves)
+        """
+        # Get the transport efficiency from constraints
+        fidelity = self.simulator.constraints.get('trap_transfer_fidelity', 0.95)
+        
+        successful_moves = []
+        failed_moves = []
+        
+        # Make a copy of the field to work with
+        updated_field = working_field.copy()
+        
+        for move in moves:
+            from_pos = move['from']
+            to_pos = move['to']
+            
+            # Check if the atom is still at the from_position (should be, but verify)
+            if updated_field[from_pos] == 0:
+                continue
+                
+            # Apply probabilistic transport check
+            if np.random.random() < fidelity:
+                # Success: atom moves to new position
+                updated_field[from_pos] = 0
+                updated_field[to_pos] = 1
+                successful_moves.append(move)
+            else:
+                # Failure: atom is lost during transport
+                updated_field[from_pos] = 0  # Remove the atom
+                failed_moves.append(move)
+        
+        return updated_field, successful_moves, failed_moves
+    
     def center_atoms_in_line(self, line_idx, is_row, target_start_idx, target_end_idx):
         """
         Center atoms in a single row or column, moving from both sides toward the center.
@@ -295,19 +337,24 @@ class MovementManager:
             # Calculate time based on maximum distance
             move_time = self.calculate_realistic_movement_time(max_distance)
             
+            # Apply transport efficiency to the moves
+            updated_field, successful_moves, failed_moves = self.apply_transport_efficiency(
+                all_moves, self.simulator.field
+            )
+            
             # Record batch move in history
             move_type = 'parallel_row_move' if is_row else 'parallel_column_move'
             self.simulator.movement_history.append({
                 'type': move_type,
-                'moves': all_moves,
-                'state': working_field.copy(),
+                'moves': successful_moves + failed_moves,  # Record all attempted moves
+                'state': updated_field.copy(),
                 'time': move_time,
-                'successful': len(all_moves),
-                'failed': 0
+                'successful': len(successful_moves),
+                'failed': len(failed_moves)
             })
             
             # Update simulator's field with final state
-            self.simulator.field = working_field.copy()
+            self.simulator.field = updated_field.copy()
         
         return len(all_moves)
     
@@ -473,20 +520,25 @@ class MovementManager:
             # Calculate time based on maximum distance
             move_time = self.calculate_realistic_movement_time(max_distance)
             
+            # Apply transport efficiency to the moves
+            updated_field, successful_moves, failed_moves = self.apply_transport_efficiency(
+                all_moves, self.simulator.field
+            )
+            
             # Record batch move in history
             self.simulator.movement_history.append({
                 'type': 'parallel_outward_spread',
-                'moves': all_moves,
-                'state': working_field.copy(),
+                'moves': successful_moves + failed_moves,  # Record all attempted moves
+                'state': updated_field.copy(),
                 'time': move_time,
-                'successful': len(all_moves),
-                'failed': 0
+                'successful': len(successful_moves),
+                'failed': len(failed_moves)
             })
             
-            moves_executed = len(all_moves)
+            moves_executed = len(successful_moves)
             
             # Update simulator's field with final state
-            self.simulator.field = working_field.copy()
+            self.simulator.field = updated_field.copy()
         
         return moves_executed
 
@@ -692,19 +744,25 @@ class MovementManager:
             # Record the parallel move in history
             if all_moves:
                 move_time = self.calculate_realistic_movement_time(max_distance)
+                
+                # Apply transport efficiency to the moves
+                updated_field, successful_moves, failed_moves = self.apply_transport_efficiency(
+                    all_moves, self.simulator.field
+                )
+                
                 group_type = 'all_corners' if len(moved_corners) == 4 else '_'.join(moved_corners)
                 self.simulator.movement_history.append({
                     'type': f'parallel_{group_type}_move',
-                    'moves': all_moves,
-                    'state': working_field.copy(),
+                    'moves': successful_moves + failed_moves,  # Record all attempted moves
+                    'state': updated_field.copy(),
                     'time': move_time,
-                    'successful': len(all_moves),
-                    'failed': 0
+                    'successful': len(successful_moves),
+                    'failed': len(failed_moves)
                 })
-                total_moves_made += len(all_moves)
+                total_moves_made += len(successful_moves)
                 
                 # Update simulator's field
-                self.simulator.field = working_field.copy()
+                self.simulator.field = updated_field.copy()
         else:
             print("No corner blocks can be moved in groups")
         
@@ -740,18 +798,24 @@ class MovementManager:
                 # Record the move in history
                 if corner_moves:
                     move_time = self.calculate_realistic_movement_time(abs(offset_col))
+                    
+                    # Apply transport efficiency to the moves
+                    updated_field, successful_moves, failed_moves = self.apply_transport_efficiency(
+                        corner_moves, self.simulator.field
+                    )
+                    
                     self.simulator.movement_history.append({
                         'type': f'move_{corner_name}_block',
-                        'moves': corner_moves,
-                        'state': working_field.copy(),
+                        'moves': successful_moves + failed_moves,  # Record all attempted moves
+                        'state': updated_field.copy(),
                         'time': move_time,
-                        'successful': len(corner_moves),
-                        'failed': 0
+                        'successful': len(successful_moves),
+                        'failed': len(failed_moves)
                     })
-                    total_moves_made += len(corner_moves)
+                    total_moves_made += len(successful_moves)
                     
                     # Update simulator's field
-                    self.simulator.field = working_field.copy()
+                    self.simulator.field = updated_field.copy()
                     
                     # Mark this corner as moved
                     moved_corners.add(corner_name)
@@ -1085,24 +1149,103 @@ class MovementManager:
         
         # Sequential implementation with optimization
         moves_executed = 0
+        defects_fixed = 0
         working_field = self.simulator.field.copy()
         
         # Create a path cache to avoid redundant path calculations
         path_cache = {}
         
+        # Helper function to execute a path with transport efficiency
+        def execute_path(path, working_field):
+            """
+            Execute a path of atom movements with transport efficiency.
+            
+            Args:
+                path: List of positions forming the path
+                working_field: Current state of the field
+                
+            Returns:
+                (success, updated_field) - success indicates if the atom reached the final destination
+            """
+            if len(path) <= 1:
+                return False, working_field
+                
+            current_field = working_field.copy()
+            
+            # Execute each step in the path
+            for i in range(1, len(path)):
+                from_pos = path[i-1]
+                to_pos = path[i]
+                
+                # Create a move dictionary for this step
+                move = {'from': from_pos, 'to': to_pos}
+                
+                # Apply transport efficiency
+                updated_field, successful_moves, failed_moves = self.apply_transport_efficiency(
+                    [move], current_field
+                )
+                
+                # If the move failed (atom lost), we can't continue this path
+                if failed_moves:
+                    # Calculate time based on Manhattan distance
+                    move_distance = abs(to_pos[0] - from_pos[0]) + abs(to_pos[1] - from_pos[1])
+                    move_time = self.calculate_realistic_movement_time(move_distance)
+                    
+                    # Record the failed move
+                    self.simulator.movement_history.append({
+                        'type': 'defect_repair_step',
+                        'moves': failed_moves,
+                        'state': updated_field.copy(),
+                        'time': move_time,
+                        'successful': 0,
+                        'failed': 1
+                    })
+                    
+                    # Return failure and the updated field
+                    return False, updated_field
+                
+                # Move was successful, update current field
+                current_field = updated_field
+                
+                # Calculate time based on Manhattan distance
+                move_distance = abs(to_pos[0] - from_pos[0]) + abs(to_pos[1] - from_pos[1])
+                move_time = self.calculate_realistic_movement_time(move_distance)
+                
+                # Record move in history
+                self.simulator.movement_history.append({
+                    'type': 'defect_repair_step',
+                    'moves': successful_moves,
+                    'state': current_field.copy(),
+                    'time': move_time,
+                    'successful': len(successful_moves),
+                    'failed': 0
+                })
+            
+            # If we completed the path, return success and the updated field
+            return True, current_field
+        
+        # Process each defect
         for defect_pos in defects:
             defect_row, defect_col = defect_pos
+            
+            # Skip if we've already filled this defect in a previous iteration
+            if working_field[defect_row, defect_col] == 1:
+                continue
             
             # Find best atom to move to this defect
             best_atom = None
             best_path = None
             best_cost = float('inf')  # Lower is better
             
-            for atom_pos in available_atoms:
+            # Create a copy of available_atoms to safely remove atoms during iteration
+            atoms_to_consider = available_atoms.copy()
+            
+            for atom_pos in atoms_to_consider:
                 atom_row, atom_col = atom_pos
                 
-                # Skip if this atom is already used
+                # Skip if this atom is already used (no longer in the field)
                 if working_field[atom_row, atom_col] == 0:
+                    available_atoms.remove(atom_pos)
                     continue
                 
                 # Try to find cached path first
@@ -1140,42 +1283,27 @@ class MovementManager:
             
             # If we found a suitable atom, move it to the defect
             if best_atom and best_path:
-                # Execute the path movements
-                for i in range(1, len(best_path)):
-                    from_pos = best_path[i-1]
-                    to_pos = best_path[i]
-                    
-                    # Skip first position if we're not at the start (atom already moved)
-                    if i > 1:
-                        working_field[from_pos] = 0
-                    else:
-                        # Remove atom from starting position
-                        working_field[from_pos] = 0
-                    
-                    # Place atom at destination
-                    working_field[to_pos] = 1
-                    
-                    # Calculate time based on Manhattan distance
-                    move_distance = abs(to_pos[0] - from_pos[0]) + abs(to_pos[1] - from_pos[1])
-                    move_time = self.calculate_realistic_movement_time(move_distance)
-                    
-                    # Record move in history
-                    self.simulator.movement_history.append({
-                        'type': 'defect_repair_step',
-                        'moves': [{'from': from_pos, 'to': to_pos}],
-                        'state': working_field.copy(),
-                        'time': move_time,
-                        'successful': 1,
-                        'failed': 0
-                    })
+                # Execute the path movements with transport efficiency
+                success, updated_field = execute_path(best_path, working_field)
                 
-                moves_executed += 1
-                
-                # Remove this atom from available atoms
-                available_atoms.remove(best_atom)
+                # Update the working field regardless of success
+                working_field = updated_field
                 
                 # Update simulator's field
                 self.simulator.field = working_field.copy()
+                
+                # If successful, increment counters and update available atoms
+                if success:
+                    moves_executed += 1
+                    defects_fixed += 1
+                    
+                    # Remove this atom from available atoms
+                    if best_atom in available_atoms:
+                        available_atoms.remove(best_atom)
+                else:
+                    # If transport failed, the atom is gone from both the field and our tracking
+                    if best_atom in available_atoms:
+                        available_atoms.remove(best_atom)
         
         # Calculate fill rate (percentage of target positions filled)
         target_size = self.simulator.side_length ** 2
@@ -1188,7 +1316,7 @@ class MovementManager:
         
         fill_rate = 1.0 - (remaining_defects / target_size)
         
-        print(f"Defect repair complete: {len(defects) - remaining_defects} defects filled. Fill rate: {fill_rate:.2f}")
+        print(f"Defect repair complete: {defects_fixed} defects filled. Fill rate: {fill_rate:.2f}")
         
         self.simulator.target_lattice = self.simulator.field.copy()
         

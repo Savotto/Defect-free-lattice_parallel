@@ -4,7 +4,7 @@ Core simulator module defining the LatticeSimulator class with initialization an
 import numpy as np
 import time
 from typing import Tuple, Dict, Optional
-from .movement import MovementManager
+from defect_free.movement import MovementManager
 
 class LatticeSimulator:
     """
@@ -14,7 +14,7 @@ class LatticeSimulator:
     SITE_DISTANCE = 5.0  # μm
     MAX_ACCELERATION = 2750.0  # m/s²
     TRAP_TRANSFER_TIME = 15e-6  # seconds (15μs)
-    TRAP_TRANSFER_FIDELITY = 0.999  # 100% fidelity for now (testing)
+    TRAP_TRANSFER_FIDELITY = 0.95 # Based on experimental data
     
     def __init__(self, 
                  initial_size: Tuple[int, int] = (50, 50),
@@ -100,7 +100,7 @@ class LatticeSimulator:
         # Calculate the largest possible square that can be formed with available atoms
         # For example: 15 atoms → 3×3 square (9 atoms used)
         #              17 atoms → 4×4 square (16 atoms used)
-        max_square_size = int(np.floor(np.sqrt(total_atoms)))
+        max_square_size = int(np.floor(np.sqrt(total_atoms * self.TRAP_TRANSFER_FIDELITY)))
         
         # Update the side_length attribute
         self.side_length = max_square_size

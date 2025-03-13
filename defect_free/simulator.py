@@ -14,7 +14,7 @@ class LatticeSimulator:
     SITE_DISTANCE = 5.0  # μm
     MAX_ACCELERATION = 2750.0  # m/s²
     TRAP_TRANSFER_TIME = 15e-6  # seconds (15μs)
-    TRAP_TRANSFER_FIDELITY = 0.95 # Based on experimental data
+    ATOM_LOSS_PROBABILITY = 0.05 # Based on experimental data
     
     def __init__(self, 
                  initial_size: Tuple[int, int] = (50, 50),
@@ -46,7 +46,7 @@ class LatticeSimulator:
             'site_distance': self.SITE_DISTANCE,
             'max_acceleration': self.MAX_ACCELERATION,
             'trap_transfer_time': self.TRAP_TRANSFER_TIME,
-            'trap_transfer_fidelity': self.TRAP_TRANSFER_FIDELITY
+            'atom_loss_probability': self.ATOM_LOSS_PROBABILITY
         }
         
         if physical_constraints:
@@ -100,7 +100,7 @@ class LatticeSimulator:
         # Calculate the largest possible square that can be formed with available atoms
         # For example: 15 atoms → 3×3 square (9 atoms used)
         #              17 atoms → 4×4 square (16 atoms used)
-        max_square_size = int(np.floor(np.sqrt(total_atoms * (self.TRAP_TRANSFER_FIDELITY**3)))) # Assuming max 3 moves per atom
+        max_square_size = int(np.floor(np.sqrt(total_atoms * ((1 - self.ATOM_LOSS_PROBABILITY)**3)))) # Assuming max 3 moves per atom
         
         # Update the side_length attribute
         self.side_length = max_square_size
@@ -135,14 +135,14 @@ class LatticeSimulator:
         self.movement_time = 0.0
         
         print("Step 1: Determining optimal target region size...")
-        # Determine target region size based on atom count
+        # Use the predefined method to calculate maximum square size
+        max_square_size = self.calculate_max_defect_free_size()
         total_atoms = np.sum(self.field)
-        max_square_size = int(np.floor(np.sqrt(total_atoms)))
-        self.side_length = min(max_square_size, self.side_length)
         
         print(f"Step 2: Calculated maximum defect-free square: {self.side_length}x{self.side_length}")
         print(f"Creating defect-free region of size {self.side_length}x{self.side_length}")
         print(f"Using {self.side_length * self.side_length} atoms out of {total_atoms} available")
+        print(f"(Accounting for {self.ATOM_LOSS_PROBABILITY:.1%} atom loss probability per move)")
         
         # Always use the combined filling strategy
         print("Step 3: Applying combined filling strategy...")

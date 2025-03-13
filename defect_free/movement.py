@@ -167,7 +167,7 @@ class MovementManager:
     def apply_transport_efficiency(self, moves, working_field):
         """
         Apply transport efficiency to a list of moves.
-        Some atoms may be lost during transport based on the trap_transfer_fidelity.
+        Some atoms may be lost during transport based on the atom_loss_probability.
         
         Args:
             moves: List of move dictionaries with 'from' and 'to' positions
@@ -176,8 +176,8 @@ class MovementManager:
         Returns:
             Tuple of (updated_field, successful_moves, failed_moves)
         """
-        # Get the transport efficiency from constraints
-        fidelity = self.simulator.constraints.get('trap_transfer_fidelity', 0.95)
+        # Get the transport success probability (1 - loss probability)
+        success_probability = 1.0 - self.simulator.constraints.get('atom_loss_probability', 0.05)
         
         successful_moves = []
         failed_moves = []
@@ -194,7 +194,7 @@ class MovementManager:
                 continue
                 
             # Apply probabilistic transport check
-            if np.random.random() < fidelity:
+            if np.random.random() < success_probability:
                 # Success: atom moves to new position
                 updated_field[from_pos] = 0
                 updated_field[to_pos] = 1

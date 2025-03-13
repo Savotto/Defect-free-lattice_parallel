@@ -1338,12 +1338,16 @@ class MovementManager:
         1. First applies row-wise centering to create initial structure
         2. Then applies column-wise centering to improve the structure
         3. Next iteratively:
-           a. Spreads atoms outside the target zone outward from center
-           b. Applies column-wise centering to utilize the repositioned atoms
-           c. Continues until no further improvement
+            a. Spreads atoms outside the target zone outward from center
+            b. Applies column-wise centering to utilize the repositioned atoms
+            c. Continues until no further improvement
         4. Then moves corner blocks into clean zones
         5. Applies column-wise centering to move corner atoms into the target zone
-        6. Repairs remaining defects in the target zone
+        6. First repair attempt for remaining defects
+        7. If defects remain, iteratively:
+            a. Apply full squeezing (row-wise + column-wise centering)
+            b. Repair remaining defects
+            c. Continue until perfect fill or no improvement
         
         Args:
             show_visualization: Whether to visualize the rearrangement
@@ -1365,6 +1369,9 @@ class MovementManager:
             print("Target zone is already defect-free! No movements needed.")
             self.simulator.target_lattice = self.simulator.field.copy()
             execution_time = time.time() - start_time
+            # Show visualization even if no changes were made
+            if show_visualization and self.simulator.visualizer:
+                self.simulator.visualizer.animate_movements(total_movement_history)
             return self.simulator.target_lattice, 1.0, execution_time
         
         # Step 1: Row-wise centering - creates basic structure
@@ -1393,7 +1400,11 @@ class MovementManager:
         
         if defects_after_row == 0:
             print("Perfect arrangement achieved after row-centering!")
+            self.simulator.movement_history = total_movement_history
             execution_time = time.time() - start_time
+            # Add visualization before return
+            if show_visualization and self.simulator.visualizer:
+                self.simulator.visualizer.animate_movements(total_movement_history)
             return self.simulator.target_lattice, 1.0, execution_time
         
         # Step 2: Column-wise centering - improves structure
@@ -1421,6 +1432,9 @@ class MovementManager:
             print("Perfect arrangement achieved after column-centering!")
             self.simulator.movement_history = total_movement_history
             execution_time = time.time() - start_time
+            # Add visualization before return
+            if show_visualization and self.simulator.visualizer:
+                self.simulator.visualizer.animate_movements(total_movement_history)
             return self.simulator.target_lattice, 1.0, execution_time
         
         # Step 3: Iterative spread-squeeze cycle
@@ -1457,10 +1471,25 @@ class MovementManager:
             spread_squeeze_moves += spread_moves
             spread_squeeze_time += spread_time
             
-            # Column-wise centering on the spread atoms
-            squeeze_start_time = time.time()
+            # First apply row-wise centering to align atoms
+            row_squeeze_start_time = time.time()
             self.simulator.movement_history = []
-            _, squeeze_retention, squeeze_time = self.column_wise_centering(
+            _, row_squeeze_retention, row_squeeze_time = self.row_wise_centering(
+                show_visualization=False  # Don't show animation yet
+            )
+            # Save movement history
+            total_movement_history.extend(self.simulator.movement_history)
+
+            # Calculate total physical time from movement history
+            physical_row_squeeze_time = sum(move['time'] for move in self.simulator.movement_history)
+            print(f"Row squeeze phase complete in {time.time() - row_squeeze_start_time:.3f} seconds, physical time: {physical_row_squeeze_time:.6f} seconds")
+
+            spread_squeeze_time += row_squeeze_time
+            
+            # Then apply column-wise centering
+            col_squeeze_start_time = time.time()
+            self.simulator.movement_history = []
+            _, col_squeeze_retention, col_squeeze_time = self.column_wise_centering(
                 show_visualization=False  # Don't show animation yet
             )
             
@@ -1468,10 +1497,10 @@ class MovementManager:
             total_movement_history.extend(self.simulator.movement_history)
             
             # Calculate total physical time from movement history
-            physical_squeeze_time = sum(move['time'] for move in self.simulator.movement_history)
-            print(f"Squeeze phase complete in {time.time() - squeeze_start_time:.3f} seconds, physical time: {physical_squeeze_time:.6f} seconds")
+            physical_col_squeeze_time = sum(move['time'] for move in self.simulator.movement_history)
+            print(f"Column squeeze phase complete in {time.time() - col_squeeze_start_time:.3f} seconds, physical time: {physical_col_squeeze_time:.6f} seconds")
             
-            spread_squeeze_time += squeeze_time
+            spread_squeeze_time += col_squeeze_time
             
             # Count defects after this iteration
             target_region = self.simulator.field[target_start_row:target_end_row, 
@@ -1487,6 +1516,9 @@ class MovementManager:
                 print("Perfect arrangement achieved after spread-squeeze cycles!")
                 self.simulator.movement_history = total_movement_history
                 execution_time = time.time() - start_time
+                # Add visualization before return
+                if show_visualization and self.simulator.visualizer:
+                    self.simulator.visualizer.animate_movements(total_movement_history)
                 return self.simulator.target_lattice, 1.0, execution_time
                 
             # Check if we should continue
@@ -1540,11 +1572,13 @@ class MovementManager:
             print("Perfect arrangement achieved after corner block movements!")
             self.simulator.movement_history = total_movement_history
             execution_time = time.time() - start_time
+            # Add visualization before return
+            if show_visualization and self.simulator.visualizer:
+                self.simulator.visualizer.animate_movements(total_movement_history)
             return self.simulator.target_lattice, 1.0, execution_time
         
-        
-        # Step 8: Repair remaining defects from center outwards
-        print(f"\nStep 8: Repairing {defects_after_corner} remaining defects...")
+        # Step 6: First repair attempt
+        print(f"\nStep 6: First repair attempt for {defects_after_corner} defects...")
         repair_start_time = time.time()
         self.simulator.movement_history = []
         final_lattice, fill_rate, repair_time = self.repair_defects(
@@ -1556,14 +1590,127 @@ class MovementManager:
         
         # Calculate total physical time from movement history
         physical_repair_time = sum(move['time'] for move in self.simulator.movement_history)
-        print(f"Defect repair complete in {time.time() - repair_start_time:.3f} seconds, physical time: {physical_repair_time:.6f} seconds")
+        print(f"First repair attempt complete in {time.time() - repair_start_time:.3f} seconds, physical time: {physical_repair_time:.6f} seconds")
+        
+        # Count defects after initial repair
+        target_region = self.simulator.field[target_start_row:target_end_row, 
+                                            target_start_col:target_end_col]
+        defects_after_repair = np.sum(target_region == 0)
+        print(f"Defects after first repair: {defects_after_repair}")
+        
+        # Check if we've achieved perfect fill
+        if defects_after_repair == 0:
+            print("Perfect arrangement achieved after first repair attempt!")
+            self.simulator.movement_history = total_movement_history
+            execution_time = time.time() - start_time
+            # Add visualization before return
+            if show_visualization and self.simulator.visualizer:
+                self.simulator.visualizer.animate_movements(total_movement_history)
+            return self.simulator.target_lattice, 1.0, execution_time
+        
+        # Step 7: Iterative squeeze and repair for remaining defects
+        print(f"\nStep 7: Iterative squeeze and repair for remaining defects...")
+        
+        # Parameters for the iterative process
+        max_squeeze_repair_iterations = 3
+        previous_defect_count = defects_after_repair
+        
+        for squeeze_repair_iteration in range(max_squeeze_repair_iterations):
+            print(f"\nSqueeze-repair iteration {squeeze_repair_iteration + 1}/{max_squeeze_repair_iterations}...")
+            
+            # Apply full squeezing to reposition atoms better
+            squeeze_start_time = time.time()
+            self.simulator.movement_history = []
+            
+            # Apply row-wise centering
+            print("Applying row-wise centering...")
+            _, _, _ = self.row_wise_centering(show_visualization=False)
+            
+            # Apply column-wise centering
+            print("Applying column-wise centering...")
+            _, _, _ = self.column_wise_centering(show_visualization=False)
+            
+            # Save movement history
+            total_movement_history.extend(self.simulator.movement_history)
+            
+            # Calculate total physical time from movement history
+            physical_squeeze_time = sum(move['time'] for move in self.simulator.movement_history)
+            print(f"Squeezing complete in {time.time() - squeeze_start_time:.3f} seconds, physical time: {physical_squeeze_time:.6f} seconds")
+            
+            # Check if squeezing fixed any defects
+            target_region = self.simulator.field[target_start_row:target_end_row, 
+                                                target_start_col:target_end_col]
+            defects_after_squeeze = np.sum(target_region == 0)
+            defects_fixed_by_squeeze = previous_defect_count - defects_after_squeeze
+            
+            if defects_fixed_by_squeeze > 0:
+                print(f"Squeezing fixed {defects_fixed_by_squeeze} defects directly!")
+            
+            # Check if we've achieved perfect fill
+            if defects_after_squeeze == 0:
+                print(f"Perfect arrangement achieved after squeeze iteration {squeeze_repair_iteration + 1}!")
+                self.simulator.movement_history = total_movement_history
+                execution_time = time.time() - start_time
+                # Add visualization before return
+                if show_visualization and self.simulator.visualizer:
+                    self.simulator.visualizer.animate_movements(total_movement_history)
+                return self.simulator.target_lattice, 1.0, execution_time
+            
+            # Apply repair for remaining defects
+            repair_start_time = time.time()
+            self.simulator.movement_history = []
+            
+            # Apply direct defect repair (without internal squeezing)
+            repair_lattice, repair_fill_rate, repair_time = self.repair_defects(
+                show_visualization=False
+            )
+            
+            # Save movement history
+            total_movement_history.extend(self.simulator.movement_history)
+            
+            # Calculate total physical time from movement history
+            physical_repair_time = sum(move['time'] for move in self.simulator.movement_history)
+            print(f"Repair attempt {squeeze_repair_iteration + 1} complete in {time.time() - repair_start_time:.3f} seconds, physical time: {physical_repair_time:.6f} seconds")
+            
+            # Count defects after this repair iteration
+            target_region = self.simulator.field[target_start_row:target_end_row, 
+                                                target_start_col:target_end_col]
+            current_defects = np.sum(target_region == 0)
+            
+            # Calculate overall improvement
+            defects_fixed = previous_defect_count - current_defects
+            print(f"Defects after squeeze-repair {squeeze_repair_iteration + 1}: {current_defects} (fixed {defects_fixed} defects)")
+            
+            # Check if we've achieved perfect fill
+            if current_defects == 0:
+                print(f"Perfect arrangement achieved after squeeze-repair iteration {squeeze_repair_iteration + 1}!")
+                self.simulator.movement_history = total_movement_history
+                execution_time = time.time() - start_time
+                # Add visualization before return
+                if show_visualization and self.simulator.visualizer:
+                    self.simulator.visualizer.animate_movements(total_movement_history)
+                return self.simulator.target_lattice, 1.0, execution_time
+                
+            # Check if we made any progress
+            if defects_fixed <= 0 and squeeze_repair_iteration > 0:
+                print(f"No improvement in this iteration - stopping further squeeze-repair attempts")
+                break
+            
+            # Update for next iteration
+            previous_defect_count = current_defects
+            fill_rate = repair_fill_rate
+        
+        # Calculate final fill rate
+        target_size = self.simulator.side_length ** 2
+        final_defects = np.sum(self.simulator.field[target_start_row:target_end_row, 
+                                                target_start_col:target_end_col] == 0)
+        final_fill_rate = 1.0 - (final_defects / target_size)
         
         # Calculate overall metrics
         execution_time = time.time() - start_time
-        total_time = (row_time + col_time + spread_squeeze_time + 
-                      corner_time + corner_squeeze_time + repair_time)
         print(f"\nCombined filling strategy completed in {execution_time:.3f} seconds")
-        print(f"Final fill rate: {fill_rate:.2%}")
+        print(f"Final fill rate: {final_fill_rate:.2%}")
+        print(f"Remaining defects: {final_defects}")
         
         # Restore complete movement history
         self.simulator.movement_history = total_movement_history
@@ -1575,4 +1722,4 @@ class MovementManager:
         total_physical_time = sum(move['time'] for move in self.simulator.movement_history)
         print(f"Total physical movement time: {total_physical_time:.6f} seconds")
             
-        return self.simulator.target_lattice, fill_rate, execution_time
+        return self.simulator.target_lattice, final_fill_rate, execution_time

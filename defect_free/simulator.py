@@ -100,7 +100,7 @@ class LatticeSimulator:
         # Calculate the largest possible square that can be formed with available atoms
         # For example: 15 atoms → 3×3 square (9 atoms used)
         #              17 atoms → 4×4 square (16 atoms used)
-        max_square_size = int(np.floor(np.sqrt(total_atoms * self.TRAP_TRANSFER_FIDELITY)))
+        max_square_size = int(np.floor(np.sqrt(total_atoms * (self.TRAP_TRANSFER_FIDELITY**3)))) # Assuming max 3 moves per atom
         
         # Update the side_length attribute
         self.side_length = max_square_size

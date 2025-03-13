@@ -1471,20 +1471,21 @@ class MovementManager:
             spread_squeeze_moves += spread_moves
             spread_squeeze_time += spread_time
             
-            # First apply row-wise centering to align atoms
-            row_squeeze_start_time = time.time()
-            self.simulator.movement_history = []
-            _, row_squeeze_retention, row_squeeze_time = self.row_wise_centering(
-                show_visualization=False  # Don't show animation yet
-            )
-            # Save movement history
-            total_movement_history.extend(self.simulator.movement_history)
+            # First apply row-wise centering to align atoms if atom loss probability != 0
+            if self.simulator.ATOM_LOSS_PROBABILITY > 0:
+                row_squeeze_start_time = time.time()
+                self.simulator.movement_history = []
+                _, row_squeeze_retention, row_squeeze_time = self.row_wise_centering(
+                    show_visualization=False  # Don't show animation yet
+                )
+                # Save movement history
+                total_movement_history.extend(self.simulator.movement_history)
 
-            # Calculate total physical time from movement history
-            physical_row_squeeze_time = sum(move['time'] for move in self.simulator.movement_history)
-            print(f"Row squeeze phase complete in {time.time() - row_squeeze_start_time:.3f} seconds, physical time: {physical_row_squeeze_time:.6f} seconds")
+                # Calculate total physical time from movement history
+                physical_row_squeeze_time = sum(move['time'] for move in self.simulator.movement_history)
+                print(f"Row squeeze phase complete in {time.time() - row_squeeze_start_time:.3f} seconds, physical time: {physical_row_squeeze_time:.6f} seconds")
 
-            spread_squeeze_time += row_squeeze_time
+                spread_squeeze_time += row_squeeze_time
             
             # Then apply column-wise centering
             col_squeeze_start_time = time.time()

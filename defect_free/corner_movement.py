@@ -741,14 +741,7 @@ class CornerMovementManager(BaseMovementManager):
         total_movement_history.extend(self.simulator.movement_history)
         
         if corner_atoms_moved > 0:
-            # Step 11: Squeeze rows left (up to target_end_row)
-            print("\nStep 11: Squeezing rows to the left (up to target_end_row)...")
-            self.simulator.movement_history = []
-            for row in range(target_end_row):
-                self.squeeze_row_left(row)
-            total_movement_history.extend(self.simulator.movement_history)
-
-            # Step 12: Squeeze columns up (only up to target_end_col)
+            # Step 11: Squeeze columns up (only up to target_end_col)
             print("\nStep 11: Final column squeeze up...")
             self.simulator.movement_history = []
             for col in range(target_end_col):
@@ -765,8 +758,15 @@ class CornerMovementManager(BaseMovementManager):
                     self.simulator.visualizer.animate_movements(total_movement_history)
                 return self.simulator.target_lattice, fill_rate, execution_time
             
+            # Step 12: Squeeze rows left (up to target_end_row)
+            print("\nStep 12: Squeezing rows to the left (up to target_end_row)...")
+            self.simulator.movement_history = []
+            for row in range(target_end_row):
+                self.squeeze_row_left(row)
+            total_movement_history.extend(self.simulator.movement_history)
+
             # Step 13: Final right edge and up iterations
-            print("\nStep 12: Final right edge and up iterations...")
+            print("\nStep 13: Final right edge and up iterations...")
             for final_iter in range(3):  # Limit final iterations
                 atoms_moved = 0
                 
@@ -819,8 +819,14 @@ class CornerMovementManager(BaseMovementManager):
 
         if final_defects > 0:
             print("\nStarting Phase 2 - Final defect repair...")
+            # Clear movement history before repair to capture only repair movements
+            self.simulator.movement_history = []
+            
             # Use the sophisticated repair_defects method to fill any remaining defects
-            final_lattice, final_fill_rate, repair_time = super().repair_defects(show_visualization=show_visualization)
+            final_lattice, final_fill_rate, repair_time = super().repair_defects(show_visualization=False)
+            
+            # Add repair movements to total history
+            total_movement_history.extend(self.simulator.movement_history)
             
             # Update execution time to include repair time
             execution_time += repair_time
@@ -848,6 +854,5 @@ class CornerMovementManager(BaseMovementManager):
         # Calculate total physical time
         total_physical_time = sum(move['time'] for move in total_movement_history)
         print(f"Total physical movement time: {total_physical_time:.6f} seconds")
-
         
         return self.simulator.target_lattice, fill_rate, execution_time

@@ -14,7 +14,7 @@ def main():
     
     # Step 1: Initialize the lattice
     # Create simulator with initial 100x100 lattice and 50% occupation probability
-    simulator = LatticeSimulator(initial_size=(40, 40), occupation_prob=0.7)
+    simulator = LatticeSimulator(initial_size=(100, 100), occupation_prob=0.7)
     simulator.generate_initial_lattice()
     
     # Step 2: Calculate the maximum possible target size based on available atoms
@@ -47,7 +47,7 @@ def main():
     # Step 3: Apply rearrangement methods to make the target region defect-free
     # This will be executed in the combined_filling_strategy below
     print("\nApplying combined filling strategy...")
-    final_lattice, fill_rate, execution_time = simulator.movement_manager.corner_filling_strategy(show_visualization=True)
+    final_lattice, fill_rate, execution_time = simulator.movement_manager.corner_filling_strategy(show_visualization=False)
     # Store the final state
     after_filling_lattice = simulator.field.copy()
     

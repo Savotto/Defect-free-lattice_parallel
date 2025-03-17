@@ -7,7 +7,7 @@ import numpy as np
 from defect_free import LatticeSimulator
 
 # Initialize simulator with a 30x30 lattice and 70% occupation probability
-simulator = LatticeSimulator(initial_size=(80, 80), occupation_prob=0.7)
+simulator = LatticeSimulator(initial_size=(100, 100), occupation_prob=0.7)
 
 # Generate initial lattice
 simulator.generate_initial_lattice()
@@ -17,6 +17,7 @@ print(f"Generated initial lattice with {np.sum(simulator.field)} atoms")
 print("Starting rearrangement...")
 start_time = time.time()
 final_lattice, retention_rate, execution_time = simulator.rearrange_for_defect_free(
+    strategy='corner',
     show_visualization=False
 )
 total_time = time.time() - start_time

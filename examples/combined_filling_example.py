@@ -14,7 +14,7 @@ def main():
     
     # Step 1: Initialize the lattice
     # Create simulator with initial 100x100 lattice and 50% occupation probability
-    simulator = LatticeSimulator(initial_size=(20, 20), occupation_prob=0.7)
+    simulator = LatticeSimulator(initial_size=(40, 40), occupation_prob=0.7)
     simulator.generate_initial_lattice()
     
     # Step 2: Calculate the maximum possible target size based on available atoms

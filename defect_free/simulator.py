@@ -100,33 +100,29 @@ class LatticeSimulator:
         # Calculate the largest possible square that can be formed with available atoms
         # For example: 15 atoms → 3×3 square (9 atoms used)
         #              17 atoms → 4×4 square (16 atoms used)
-        max_square_size = int(np.floor(np.sqrt(total_atoms * ((1 - self.ATOM_LOSS_PROBABILITY)**3)))) # Assuming max 3 moves per atom
+        atom_loss_prob = self.constraints.get('atom_loss_probability', 0.0)
+        max_square_size = int(np.floor(np.sqrt(total_atoms * ((1 - atom_loss_prob)**3)))) # Assuming max 3 moves per atom
         
         # Update the side_length attribute
         self.side_length = max_square_size
         
         return max_square_size
     
-    def rearrange_for_defect_free(self, show_visualization=True) -> Tuple[np.ndarray, float, float]:
+    def rearrange_for_defect_free(self, strategy='center', show_visualization=True) -> Tuple[np.ndarray, float, float]:
         """
-        Rearrange atoms to create a defect-free region using the combined filling strategy.
+        Rearrange atoms to create a defect-free region using the specified strategy.
         
         This method performs the complete atom rearrangement process:
         1. Determine the optimal target region based on available atoms
         2. Calculate the maximum possible defect-free square
-        3. Apply the comprehensive combined filling strategy to create the defect-free region
-        
-        The combined filling strategy:
-        - First applies row-wise centering to create initial structure
-        - Then applies column-wise centering to improve the structure
-        - Next iteratively spreads and squeezes atoms until optimal arrangement
-        - Finally repairs remaining defects from the center outwards
+        3. Apply the selected filling strategy to create the defect-free region
         
         Args:
+            strategy: Which filling strategy to use: 'center' or 'corner'
             show_visualization: Whether to show animation
             
         Returns:
-            Tuple of (target_lattice, retention_rate, execution_time)
+            Tuple of (target_lattice, fill_rate, execution_time)
         """
         start_time = time.time()
         
@@ -139,15 +135,20 @@ class LatticeSimulator:
         max_square_size = self.calculate_max_defect_free_size()
         total_atoms = np.sum(self.field)
         
+        # Calculate atom loss probability
+        atom_loss_prob = self.constraints.get('atom_loss_probability', 0.0)
+        
         print(f"Step 2: Calculated maximum defect-free square: {self.side_length}x{self.side_length}")
         print(f"Creating defect-free region of size {self.side_length}x{self.side_length}")
         print(f"Using {self.side_length * self.side_length} atoms out of {total_atoms} available")
-        print(f"(Accounting for {self.ATOM_LOSS_PROBABILITY:.1%} atom loss probability per move)")
         
-        # Always use the combined filling strategy
-        print("Step 3: Applying combined filling strategy...")
-        print("Using combined filling strategy")
-        result = self.movement_manager.combined_filling_strategy(
+        if atom_loss_prob > 0:
+            print(f"(Accounting for {atom_loss_prob:.1%} atom loss probability per move)")
+        
+        # Apply the selected strategy
+        print(f"Step 3: Applying {strategy} filling strategy...")
+        result = self.movement_manager.rearrange_for_defect_free(
+            strategy=strategy,
             show_visualization=show_visualization
         )
         
@@ -155,4 +156,4 @@ class LatticeSimulator:
         execution_time = time.time() - start_time
         print(f"Total rearrangement time: {execution_time:.3f} seconds")
         
-        return result
+        return result, execution_time

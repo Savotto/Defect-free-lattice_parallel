@@ -18,7 +18,7 @@ class CenterMovementManager(BaseMovementManager):
         if self.target_region is not None:
             return  # Already initialized
             
-        field_height, field_width = self.simulator.field_size
+        field_height, field_width = self.simulator.initial_size
         side_length = self.simulator.side_length
         
         # Center the target region
@@ -279,7 +279,7 @@ class CenterMovementManager(BaseMovementManager):
             total_moves_made += moves_made
             
         # Then process rows below the target zone
-        for row in range(target_end_row, self.simulator.field_size[0]):
+        for row in range(target_end_row, self.simulator.initial_size[0]):
             moves_made = self.spread_atoms_in_row(row, target_start_col, target_end_col, center_col)
             total_moves_made += moves_made
         
@@ -377,7 +377,7 @@ class CenterMovementManager(BaseMovementManager):
             # Calculate new position: move as far right as possible without collision
             # but not beyond the target_end_col-1 (right edge of target zone)
             new_col = col
-            field_width = self.simulator.field_size[1]
+            field_width = self.simulator.initial_size[1]
             while new_col < target_end_col - 1 and working_field[row, new_col+1] == 0 and (new_col+1) not in new_right_positions:
                 new_col += 1
             
@@ -450,7 +450,7 @@ class CenterMovementManager(BaseMovementManager):
         center_col = (target_start_col + target_end_col) // 2
         
         # Get field dimensions
-        field_height, field_width = self.simulator.field_size
+        field_height, field_width = self.simulator.initial_size
         
         # Calculate corner block dimensions
         initial_height, initial_width = self.simulator.initial_size

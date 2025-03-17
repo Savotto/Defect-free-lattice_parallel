@@ -426,8 +426,8 @@ class BaseMovementManager:
         
         # Find all available atoms outside the target region
         available_atoms = []
-        for row in range(self.simulator.field_size[0]):
-            for col in range(self.simulator.field_size[1]):
+        for row in range(self.simulator.initial_size[0]):
+            for col in range(self.simulator.initial_size[1]):
                 if self.simulator.field[row, col] == 1:  # Found an atom
                     # Check if it's outside the target region
                     if not (target_start_row <= row < target_end_row and 

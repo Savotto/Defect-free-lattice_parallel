@@ -30,7 +30,6 @@ class LatticeSimulator:
         """
         self.initial_size = initial_size
         self.occupation_prob = occupation_prob
-        self.field_size = (110, 110)  # Larger field for movement space
         
         # Initialize lattices
         self.slm_lattice = None  # Initial lattice
@@ -62,6 +61,8 @@ class LatticeSimulator:
         
         # Visualizer will be assigned externally
         self.visualizer = None
+        
+        self.strategy = 'center'  # Default strategy
     
     def generate_initial_lattice(self, seed: Optional[int] = None) -> np.ndarray:
         """Generate a random lattice with the specified occupation probability."""
@@ -69,11 +70,15 @@ class LatticeSimulator:
             np.random.seed(seed)
             
         # Generate initial lattice directly in the field
-        self.field = np.zeros(self.field_size, dtype=int)
+        self.field = np.zeros(self.initial_size, dtype=int)
         
-        # Place the initial lattice at the center of the field
-        start_row = (self.field_size[0] - self.initial_size[0]) // 2
-        start_col = (self.field_size[1] - self.initial_size[1]) // 2
+        if self.strategy == 'corner':
+            # Place the initial lattice at the top-left corner of the field
+            start_row, start_col = 0, 0
+        else:
+            # Place the initial lattice at the center of the field
+            start_row = (self.initial_size[0] - self.initial_size[0]) // 2
+            start_col = (self.initial_size[1] - self.initial_size[1]) // 2
         
         # Create random distribution based on occupation probability
         initial_region = np.random.random(self.initial_size) < self.occupation_prob

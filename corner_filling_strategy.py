@@ -328,7 +328,7 @@ def align_atoms_with_right_edge(self, target_end_row, target_end_col):
     Returns:
         Number of atoms moved
     """
-    field_height, field_width = self.simulator.field.shape
+    field_height, field_width = self.simulator.initial_size
     
     # We'll collect all moves to execute them in parallel
     all_moves = []
@@ -404,7 +404,7 @@ def align_atoms_with_bottom_edge(self, target_end_row, target_end_col):
     Returns:
         Number of atoms moved
     """
-    field_height, field_width = self.simulator.field.shape
+    field_height, field_width = self.simulator.initial_size
     
     # We'll collect all moves to execute them in parallel
     all_moves = []

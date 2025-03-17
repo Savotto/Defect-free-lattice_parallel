@@ -236,6 +236,11 @@ class LatticeVisualizer:
             target_size = target.shape[0] * target.shape[1]
             retention = target_atoms / target_size if target_size > 0 else 0
             
+            if total_moves == 0:
+                average_time_per_move = 0
+            else:
+                average_time_per_move = total_time * 1000 / total_moves
+
             # Create statistics text
             stats_text = (
                 f"Movement Statistics\n"
@@ -247,7 +252,7 @@ class LatticeVisualizer:
                 f"Total operations: {total_moves}\n"
                 f"Total atoms moved: {total_atoms_moved}\n"
                 f"Total movement time: {total_time*1000:.2f} ms\n"
-                f"Average time per move: {total_time*1000/total_moves:.2f} ms"
+                f"Average time per move: {average_time_per_move:.2f} ms"
             )
             
             axes[1, 1].text(0.1, 0.9, stats_text, 

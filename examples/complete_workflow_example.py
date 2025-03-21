@@ -21,7 +21,7 @@ simulator.visualizer = visualizer
 print("Starting rearrangement...")
 start_time = time.time()
 result, execution_time = simulator.rearrange_for_defect_free(
-    strategy='center',
+    strategy='corner',
     show_visualization=False
 )
 final_lattice, fill_rate, _ = result 

@@ -15,6 +15,8 @@ class LatticeSimulator:
     MAX_ACCELERATION = 2750.0  # m/s²
     TRAP_TRANSFER_TIME = 15e-6  # seconds (15μs)
     ATOM_LOSS_PROBABILITY = 0.0 # Based on experimental data
+    MAX_VELOCITY = 0.3  # m/s
+    SETTLING_TIME = 1e-6  # seconds
     
     def __init__(self, 
                  initial_size: Tuple[int, int] = (50, 50),
@@ -45,7 +47,9 @@ class LatticeSimulator:
             'site_distance': self.SITE_DISTANCE,
             'max_acceleration': self.MAX_ACCELERATION,
             'trap_transfer_time': self.TRAP_TRANSFER_TIME,
-            'atom_loss_probability': self.ATOM_LOSS_PROBABILITY
+            'atom_loss_probability': self.ATOM_LOSS_PROBABILITY,
+            'max_velocity': self.MAX_VELOCITY,
+            'settling_time': self.SETTLING_TIME
         }
         
         if physical_constraints:

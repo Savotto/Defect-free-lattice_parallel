@@ -51,21 +51,13 @@ class BaseMovementManager:
         
         # Physical constants
         max_acceleration = self.simulator.constraints['max_acceleration']  # m/s²
-        max_velocity = self.simulator.constraints.get('max_velocity', 0.3)  # m/s (0.3 m/s from Pagano et al. 2024)
+        max_velocity = self.simulator.constraints['max_velocity']  # m/s 
         site_distance = self.simulator.constraints['site_distance']  # μm
-        settling_time = self.simulator.constraints.get('settling_time', 1e-6)  # seconds (microsecond)
-        
-        # Quantum speed limit constraints from research
-        quantum_speed_limit = self.simulator.constraints.get('quantum_speed_limit', 10e-6)  # 10 μs (from Pagano 2024)
-        quantum_speed_reference_distance = self.simulator.constraints.get('quantum_speed_reference_distance', 3.0)  # 3 μm
+        settling_time = self.simulator.constraints['settling_time']  # seconds (microsecond)
         
         # Convert distance from lattice units to meters
         distance_m = distance * site_distance * 1e-6
         distance_um = distance * site_distance
-        
-        # Quantum speed limit scaling - if we move more than the reference distance, 
-        # we need to scale the minimum time appropriately
-        minimum_time = (distance_um / quantum_speed_reference_distance) * quantum_speed_limit
         
         # Acceleration distance
         accel_distance = (max_velocity**2) / (2 * max_acceleration)
@@ -85,7 +77,7 @@ class BaseMovementManager:
         kinematic_time += settling_time
         
         # Apply quantum speed limit - cannot move faster than quantum mechanics allows
-        total_time = max(kinematic_time, minimum_time)
+        total_time = kinematic_time
         
         # Cache and return result
         self._movement_time_cache[cache_key] = total_time

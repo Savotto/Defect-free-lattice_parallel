@@ -25,6 +25,43 @@ wheels/
 .vscode/
 *.swp
 *.swo
+*.sublime-project
+*.sublime-workspace
+.project
+.pydevproject
+.spyderproject
+.spyproject
+*.iml
+
+# Virtual Environments
+env/
+venv/
+ENV/
+.env/
+.venv/
+virtualenv/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+
+# Logs
+logs/
+*.log
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
 
 # OS
 .DS_Store

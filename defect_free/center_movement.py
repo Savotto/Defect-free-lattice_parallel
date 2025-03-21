@@ -715,7 +715,7 @@ class CenterMovementManager(BaseMovementManager):
         
         return self.simulator.field.copy(), total_moves_made, execution_time
 
-    def combined_filling_strategy(self, show_visualization=True):
+    def center_filling_strategy(self, show_visualization=True):
         """
         An optimized comprehensive filling strategy that combines multiple methods:
         1. First applies row-wise centering to create initial structure
@@ -741,7 +741,7 @@ class CenterMovementManager(BaseMovementManager):
         start_time = time.time()
         total_movement_history = []
         self.initialize_target_region()
-        print("\nCombined filling strategy starting...")
+        print("\nCenter filling strategy starting...")
         target_start_row, target_start_col, target_end_row, target_end_col = self.target_region
         
         # Check if target zone is already defect-free
@@ -1092,7 +1092,7 @@ class CenterMovementManager(BaseMovementManager):
         
         # Calculate overall metrics
         execution_time = time.time() - start_time
-        print(f"\nCombined filling strategy completed in {execution_time:.3f} seconds")
+        print(f"\nCenter filling strategy completed in {execution_time:.3f} seconds")
         print(f"Final fill rate: {final_fill_rate:.2%}")
         print(f"Remaining defects: {final_defects}")
         

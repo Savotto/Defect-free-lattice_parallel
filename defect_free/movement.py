@@ -79,9 +79,9 @@ class MovementManager:
         else:  # corner
             return self.corner_manager.repair_defects(show_visualization)
     
-    def combined_filling_strategy(self, show_visualization=True):
+    def center_filling_strategy(self, show_visualization=True):
         """
-        Use the center-based combined filling strategy.
+        Use the center-based filling strategy.
         This is the original strategy that places the target zone in the center.
         """
         # Always ensure we're using the center strategy for this method
@@ -92,7 +92,7 @@ class MovementManager:
         self.center_manager.initialize_target_region()
         self.target_region = self.center_manager.target_region
         
-        result = self.center_manager.combined_filling_strategy(show_visualization)
+        result = self.center_manager.center_filling_strategy(show_visualization)
         
         # Ensure the target region is set in the movement manager
         self.target_region = self.center_manager.target_region
@@ -146,7 +146,7 @@ class MovementManager:
         # Call the appropriate strategy
         if strategy == 'center':
             print("Using center-based filling strategy")
-            return self.combined_filling_strategy(show_visualization)
+            return self.center_filling_strategy(show_visualization)
         else:  # corner
             print("Using corner-based filling strategy")
             return self.corner_filling_strategy(show_visualization)

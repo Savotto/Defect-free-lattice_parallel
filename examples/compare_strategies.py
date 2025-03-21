@@ -12,7 +12,7 @@ from defect_free import LatticeSimulator, LatticeVisualizer
 def run_comparison(initial_size=(100, 100), 
                   occupation_prob=0.7, 
                   seed=42, 
-                  atom_loss_probability=0.0,
+                  atom_loss_probability=0.05,
                   show_visualization=True,
                   save_figures=False,
                   output_dir="comparison_results"):
@@ -97,7 +97,7 @@ def run_comparison(initial_size=(100, 100),
         # Run the rearrangement
         start_time = time_module.time()
         if strategy == "center":
-            final_lattice, fill_rate, execution_time = simulator.movement_manager.combined_filling_strategy(
+            final_lattice, fill_rate, execution_time = simulator.movement_manager.center_filling_strategy(
                 show_visualization=False  # We'll show visualizations at the end
             )
         else:  # corner
@@ -150,11 +150,6 @@ def run_comparison(initial_size=(100, 100),
             fig_analysis = visualizer.show_final_analysis()
             if save_figures:
                 fig_analysis.savefig(f"{output_dir}/{strategy}_final_analysis.png", dpi=300, bbox_inches='tight')
-            
-            # Show density heatmap
-            fig_heatmap = visualizer.plot_density_heatmap()
-            if save_figures:
-                fig_heatmap.savefig(f"{output_dir}/{strategy}_density_heatmap.png", dpi=300, bbox_inches='tight')
             
             # Show movement opportunities (helps diagnose why some defects couldn't be filled)
             if defects > 0:
@@ -414,104 +409,6 @@ def run_comparison(initial_size=(100, 100),
     
     return results
 
-
-def compare_atom_loss_impacts(loss_values=[0.0, 0.01, 0.03, 0.05, 0.1], **kwargs):
-    """
-    Compare how different atom loss probabilities affect both strategies.
-    
-    Args:
-        loss_values: List of atom loss probability values to test
-        **kwargs: Additional arguments to pass to run_comparison
-        
-    Returns:
-        Dictionary with results for each loss value
-    """
-    loss_results = {}
-    
-    # Test each atom loss probability
-    for loss_prob in loss_values:
-        print("\n" + "="*60)
-        print(f"TESTING ATOM LOSS PROBABILITY: {loss_prob:.2%}")
-        print("="*60)
-        
-        # Run comparison with this loss probability
-        results = run_comparison(
-            atom_loss_probability=loss_prob,
-            show_visualization=False,  # Don't show individual visualizations
-            **kwargs
-        )
-        
-        # Save results
-        loss_results[loss_prob] = results
-    
-    # Create summary plot
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    
-    # Data for plotting
-    loss_probs = list(loss_results.keys())
-    center_fill_rates = [loss_results[p]["center"]["fill_rate"] for p in loss_probs]
-    corner_fill_rates = [loss_results[p]["corner"]["fill_rate"] for p in loss_probs]
-    
-    center_times = [loss_results[p]["center"]["physical_time"] for p in loss_probs]
-    corner_times = [loss_results[p]["corner"]["physical_time"] for p in loss_probs]
-    
-    center_moves = [loss_results[p]["center"]["total_atom_moves"] for p in loss_probs]
-    corner_moves = [loss_results[p]["corner"]["total_atom_moves"] for p in loss_probs]
-    
-    center_defects = [loss_results[p]["center"]["defects"] for p in loss_probs]
-    corner_defects = [loss_results[p]["corner"]["defects"] for p in loss_probs]
-    
-    # Plot fill rates
-    axes[0, 0].plot(loss_probs, center_fill_rates, 'o-', label='Center Strategy')
-    axes[0, 0].plot(loss_probs, corner_fill_rates, 's-', label='Corner Strategy')
-    axes[0, 0].set_xlabel('Atom Loss Probability')
-    axes[0, 0].set_ylabel('Fill Rate')
-    axes[0, 0].set_title('Fill Rate vs Atom Loss Probability')
-    axes[0, 0].grid(True)
-    axes[0, 0].legend()
-    
-    # Plot physical times
-    axes[0, 1].plot(loss_probs, center_times, 'o-', label='Center Strategy')
-    axes[0, 1].plot(loss_probs, corner_times, 's-', label='Corner Strategy')
-    axes[0, 1].set_xlabel('Atom Loss Probability')
-    axes[0, 1].set_ylabel('Physical Time (s)')
-    axes[0, 1].set_title('Physical Movement Time vs Atom Loss Probability')
-    axes[0, 1].grid(True)
-    axes[0, 1].legend()
-    
-    # Plot atom moves
-    axes[1, 0].plot(loss_probs, center_moves, 'o-', label='Center Strategy')
-    axes[1, 0].plot(loss_probs, corner_moves, 's-', label='Corner Strategy')
-    axes[1, 0].set_xlabel('Atom Loss Probability')
-    axes[1, 0].set_ylabel('Total Atom Moves')
-    axes[1, 0].set_title('Movement Complexity vs Atom Loss Probability')
-    axes[1, 0].grid(True)
-    axes[1, 0].legend()
-    
-    # Plot defects
-    axes[1, 1].plot(loss_probs, center_defects, 'o-', label='Center Strategy')
-    axes[1, 1].plot(loss_probs, corner_defects, 's-', label='Corner Strategy')
-    axes[1, 1].set_xlabel('Atom Loss Probability')
-    axes[1, 1].set_ylabel('Remaining Defects')
-    axes[1, 1].set_title('Defects vs Atom Loss Probability')
-    axes[1, 1].grid(True)
-    axes[1, 1].legend()
-    
-    plt.tight_layout()
-    
-    # Save if requested
-    if kwargs.get('save_figures', False):
-        output_dir = kwargs.get('output_dir', 'comparison_results')
-        import os
-        os.makedirs(output_dir, exist_ok=True)
-        plt.savefig(f"{output_dir}/atom_loss_comparison.png", dpi=300, bbox_inches='tight')
-    
-    # Display
-    if kwargs.get('show_visualization', True):
-        plt.show()
-    
-    return loss_results
-
 def analyze_movement_efficiency(results):
     """
     Analyze the movement efficiency of both strategies in detail.
@@ -665,44 +562,16 @@ def analyze_movement_efficiency(results):
 
 
 def main():
-    """Main function to run the comparison."""
-    import argparse
-    
-    parser = argparse.ArgumentParser(description='Compare corner and center atom rearrangement strategies')
-    parser.add_argument('--size', type=int, nargs=2, default=[100, 100], help='Initial lattice size (rows cols)')
-    parser.add_argument('--occupation', type=float, default=0.7, help='Atom occupation probability (0.0-1.0)')
-    parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
-    parser.add_argument('--loss', type=float, default=0.0, help='Atom loss probability during movement')
-    parser.add_argument('--no-visual', action='store_true', help='Disable visualizations')
-    parser.add_argument('--save', action='store_true', help='Save figures to files')
-    parser.add_argument('--output-dir', type=str, default='comparison_results', help='Directory for output files')
-    parser.add_argument('--loss-sweep', action='store_true', help='Run comparison across multiple loss probabilities')
-    parser.add_argument('--loss-values', type=float, nargs='+', default=[0.0, 0.01, 0.03, 0.05, 0.1], 
-                        help='Loss probability values to test in sweep')
-    
-    args = parser.parse_args()
-    
-    # Run comparison or loss sweep
-    if args.loss_sweep:
-        compare_atom_loss_impacts(
-            loss_values=args.loss_values,
-            initial_size=tuple(args.size),
-            occupation_prob=args.occupation,
-            seed=args.seed,
-            show_visualization=not args.no_visual,
-            save_figures=args.save,
-            output_dir=args.output_dir
-        )
-    else:
-        run_comparison(
-            initial_size=tuple(args.size),
-            occupation_prob=args.occupation,
-            seed=args.seed,
-            atom_loss_probability=args.loss,
-            show_visualization=not args.no_visual,
-            save_figures=args.save,
-            output_dir=args.output_dir
-        )
+    """Main function to run the comparison with default parameters."""
+    run_comparison(
+        initial_size=(100, 100),
+        occupation_prob=0.7,
+        seed=42,
+        atom_loss_probability=0.1,
+        show_visualization=True,
+        save_figures=False,
+        output_dir="comparison_results"
+    )
 
 
 if __name__ == "__main__":

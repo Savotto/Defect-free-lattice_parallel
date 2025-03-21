@@ -288,48 +288,6 @@ class LatticeVisualizer:
         self.ani.save(filename, writer=writer)
         print("Animation saved successfully!")
 
-    
-    def plot_density_heatmap(self, save_path: Optional[str] = None):
-        """
-        Plot a heatmap showing atom density across the lattice.
-        
-        Args:
-            save_path: Optional path to save the figure
-        """
-        if self.simulator.movement_manager.target_region is None:
-            print("Target region not defined.")
-            return
-            
-        # Create figure
-        fig, ax = plt.subplots(figsize=(10, 8))
-        
-        # Calculate atom density using convolution
-        from scipy.ndimage import convolve
-        kernel = np.ones((5, 5))
-        density = convolve(self.simulator.target_lattice, kernel, mode='constant')
-        
-        # Plot heatmap
-        im = ax.imshow(density, cmap=self.atom_cmap)
-        ax.set_title("Atom Density Heatmap")
-        
-        # Highlight target region
-        start_row, start_col, end_row, end_col = self.simulator.movement_manager.target_region
-        rect = plt.Rectangle((start_col-0.5, start_row-0.5), 
-                           end_col-start_col, end_row-start_row,
-                           fill=False, edgecolor=self.colors['target'], 
-                           linewidth=2, linestyle='--')
-        ax.add_patch(rect)
-        
-        # Add colorbar
-        cbar = plt.colorbar(im, ax=ax)
-        cbar.set_label('Local Atom Count (5x5 area)')
-        
-        # Save if requested
-        if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-            
-        return fig
-
     def visualize_movement_opportunities(self, highlight_unreachable: bool = True):
         """
         Visualize potential movement opportunities and unreachable defects.

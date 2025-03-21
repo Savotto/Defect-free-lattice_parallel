@@ -543,7 +543,7 @@ class CornerMovementManager(BaseMovementManager):
         """
         A filling strategy that places the target region in the top-left corner.
         
-        This method implements a different approach than the combined_filling_strategy:
+        This method implements a different approach than the center_filling_strategy:
         1. Places the target zone in the top-left corner
         2. Squeezes rows to the left (from row 0 to target_end_row)
         3. Squeezes columns upward (from column 0 to target_end_col)
@@ -564,7 +564,10 @@ class CornerMovementManager(BaseMovementManager):
         start_time = time.time()
         total_movement_history = []
         
+        print("\nCorner filling strategy starting...")
+        
         # Step 1: Initialize target zone in top-left corner
+        print("\nStep 1: Initializing target zone in top-left corner...")
         self.initialize_target_region()
         
         target_start_row, target_start_col, target_end_row, target_end_col = self.target_region
@@ -573,7 +576,10 @@ class CornerMovementManager(BaseMovementManager):
         target_region = self.simulator.field[target_start_row:target_end_row, 
                                         target_start_col:target_end_col]
         initial_defects = np.sum(target_region == 0)
+        print(f"Initial defects in target zone: {initial_defects}")
+        
         if initial_defects == 0:
+            print("Target zone is already defect-free! No movements needed.")
             self.simulator.target_lattice = self.simulator.field.copy()
             execution_time = time.time() - start_time
             # Make sure to update the movement history before returning
@@ -583,6 +589,8 @@ class CornerMovementManager(BaseMovementManager):
             return self.simulator.target_lattice, 1.0, execution_time
         
         # Step 2: Squeeze rows to the left - only up to target_end_row
+        print("\nStep 2: Squeezing rows to the left...")
+        step_start_time = time.time()
         self.simulator.movement_history = []
         total_row_left_atoms_moved = 0
         for row in range(target_end_row):  # From row 0 to target_end_row (excluding target_end_row)
@@ -590,9 +598,20 @@ class CornerMovementManager(BaseMovementManager):
             total_row_left_atoms_moved += atoms_moved
         total_movement_history.extend(self.simulator.movement_history)
         
+        # Calculate physical time for this step
+        physical_time = sum(move.get('time', 0) for move in self.simulator.movement_history)
+        print(f"Row squeezing complete in {time.time() - step_start_time:.3f} seconds, physical time: {physical_time:.6f} seconds")
+        print(f"Moved {total_row_left_atoms_moved} atoms in total during row squeezing")
+        
+        # Check defects after this step
+        target_region = self.simulator.field[target_start_row:target_end_row, target_start_col:target_end_col]
+        defects_after_row = np.sum(target_region == 0)
+        print(f"Defects after row squeezing: {defects_after_row}")
+        
         # Check if target zone is full after left squeeze
         is_full, fill_rate = self.check_target_zone_full()
         if is_full:
+            print("Perfect arrangement achieved after row squeezing!")
             self.simulator.target_lattice = self.simulator.field.copy()
             execution_time = time.time() - start_time
             # Make sure to update the movement history before returning
@@ -602,6 +621,8 @@ class CornerMovementManager(BaseMovementManager):
             return self.simulator.target_lattice, fill_rate, execution_time
         
         # Step 3: Squeeze columns upward - only up to target_end_col
+        print("\nStep 3: Squeezing columns upward...")
+        step_start_time = time.time()
         self.simulator.movement_history = []
         total_col_up_atoms_moved = 0
         for col in range(target_end_col):  # From column 0 to target_end_col (excluding target_end_col)
@@ -609,9 +630,20 @@ class CornerMovementManager(BaseMovementManager):
             total_col_up_atoms_moved += atoms_moved
         total_movement_history.extend(self.simulator.movement_history)
         
+        # Calculate physical time for this step
+        physical_time = sum(move.get('time', 0) for move in self.simulator.movement_history)
+        print(f"Column squeezing complete in {time.time() - step_start_time:.3f} seconds, physical time: {physical_time:.6f} seconds")
+        print(f"Moved {total_col_up_atoms_moved} atoms in total during column squeezing")
+        
+        # Check defects after this step
+        target_region = self.simulator.field[target_start_row:target_end_row, target_start_col:target_end_col]
+        defects_after_col = np.sum(target_region == 0)
+        print(f"Defects after column squeezing: {defects_after_col}")
+        
         # Check if target zone is full after column squeeze
         is_full, fill_rate = self.check_target_zone_full()
         if is_full:
+            print("Perfect arrangement achieved after column squeezing!")
             self.simulator.target_lattice = self.simulator.field.copy()
             execution_time = time.time() - start_time
             # Make sure to update the movement history before returning
@@ -621,15 +653,19 @@ class CornerMovementManager(BaseMovementManager):
             return self.simulator.target_lattice, fill_rate, execution_time
         
         # Steps 4-6: Iterative right edge and column squeezing
+        print("\nSteps 4-6: Starting iterative right edge and column squeezing...")
         # Continue as long as we're making meaningful progress (more than 1 defect fixed)
-        previous_defects = initial_defects
+        previous_defects = defects_after_col
         iteration = 0
         improvement = float('inf')  # Initialize with a large value to enter the loop
         
         while improvement > 1:  # Continue while we're fixing more than 1 defect per iteration
             iteration += 1
+            print(f"\nIteration {iteration} of right edge and column squeezing...")
             
             # Step 4: Squeeze rows right under target zone (only columns up to target_end_col)
+            print(f"Step 4.{iteration}: Squeezing rows right (under target zone)...")
+            step_start_time = time.time()
             self.simulator.movement_history = []
             atoms_moved = 0
             for row in range(target_end_row, self.simulator.initial_size[0]):
@@ -637,12 +673,24 @@ class CornerMovementManager(BaseMovementManager):
                 atoms_moved += self.squeeze_row_right(row, start_col=0, end_col=target_end_col)
             total_movement_history.extend(self.simulator.movement_history)
             
+            # Calculate physical time for this step
+            physical_time = sum(move.get('time', 0) for move in self.simulator.movement_history)
+            print(f"Right squeezing complete in {time.time() - step_start_time:.3f} seconds, physical time: {physical_time:.6f} seconds")
+            print(f"Moved {atoms_moved} atoms during right squeezing")
+            
             if atoms_moved == 0:
+                print("No atoms moved during right squeezing, breaking iteration")
                 break
+            
+            # Check defects after this step
+            target_region = self.simulator.field[target_start_row:target_end_row, target_start_col:target_end_col]
+            defects_after_right = np.sum(target_region == 0)
+            print(f"Defects after right squeezing: {defects_after_right}")
             
             # Check if target zone is full after right squeeze
             is_full, fill_rate = self.check_target_zone_full()
             if is_full:
+                print("Perfect arrangement achieved after right squeezing!")
                 self.simulator.target_lattice = self.simulator.field.copy()
                 execution_time = time.time() - start_time
                 # Make sure to update the movement history before returning
@@ -652,23 +700,33 @@ class CornerMovementManager(BaseMovementManager):
                 return self.simulator.target_lattice, fill_rate, execution_time
             
             # Step 5: Squeeze columns up
+            print(f"Step 5.{iteration}: Squeezing columns up...")
+            step_start_time = time.time()
             self.simulator.movement_history = []
             col_up_atoms_moved = 0
             for col in range(target_end_col):  # Only up to target_end_col
                 col_up_atoms_moved += self.squeeze_column_up(col)
             total_movement_history.extend(self.simulator.movement_history)
             
+            # Calculate physical time for this step
+            physical_time = sum(move.get('time', 0) for move in self.simulator.movement_history)
+            print(f"Column squeezing complete in {time.time() - step_start_time:.3f} seconds, physical time: {physical_time:.6f} seconds")
+            print(f"Moved {col_up_atoms_moved} atoms during column squeezing")
+            
             # Check progress
             target_region = self.simulator.field[target_start_row:target_end_row, 
                                                 target_start_col:target_end_col]
             current_defects = np.sum(target_region == 0)
+            print(f"Defects after column squeezing: {current_defects}")
             
             if current_defects == 0:
+                print("Perfect arrangement achieved!")
                 break
             
             # Check if target zone is full after column squeeze
             is_full, fill_rate = self.check_target_zone_full()
             if is_full:
+                print("Perfect arrangement achieved after column squeezing!")
                 self.simulator.target_lattice = self.simulator.field.copy()
                 execution_time = time.time() - start_time
                 # Make sure to update the movement history before returning
@@ -679,6 +737,7 @@ class CornerMovementManager(BaseMovementManager):
             
             # Calculate improvement
             improvement = previous_defects - current_defects
+            print(f"Improvement in this iteration: {improvement} defects fixed")
             previous_defects = current_defects
         
         # Initialize variables for the second main iteration (steps 7-9)
@@ -686,21 +745,37 @@ class CornerMovementManager(BaseMovementManager):
         max_iterations = 5  # Maximum number of iterations for bottom edge processing
         min_improvement = 2  # Minimum number of defects that must be fixed to continue
         
+        print(f"\nSteps 7-9: Starting bottom edge processing (max {max_iterations} iterations)...")
         for iteration in range(max_iterations):
+            print(f"\nBottom edge iteration {iteration+1}/{max_iterations}...")
             
             # Step 7: Squeeze atoms from right of target zone downward
+            print(f"Step 7.{iteration+1}: Squeezing atoms from right of target zone downward...")
+            step_start_time = time.time()
             self.simulator.movement_history = []
             atoms_moved = 0
             for col in range(target_end_col, self.simulator.initial_size[1]):
                 atoms_moved += self.squeeze_column_down(col, end_row=target_end_row)
             total_movement_history.extend(self.simulator.movement_history)
             
+            # Calculate physical time for this step
+            physical_time = sum(move.get('time', 0) for move in self.simulator.movement_history)
+            print(f"Downward squeezing complete in {time.time() - step_start_time:.3f} seconds, physical time: {physical_time:.6f} seconds")
+            print(f"Moved {atoms_moved} atoms during downward squeezing")
+            
             if atoms_moved == 0:
+                print("No atoms moved during downward squeezing, breaking iteration")
                 break
+            
+            # Check defects after this step
+            target_region = self.simulator.field[target_start_row:target_end_row, target_start_col:target_end_col]
+            defects_after_down = np.sum(target_region == 0)
+            print(f"Defects after downward squeezing: {defects_after_down}")
             
             # Check if target zone is full after downward squeeze
             is_full, fill_rate = self.check_target_zone_full()
             if is_full:
+                print("Perfect arrangement achieved after downward squeezing!")
                 self.simulator.target_lattice = self.simulator.field.copy()
                 execution_time = time.time() - start_time
                 # Make sure to update the movement history before returning
@@ -710,29 +785,56 @@ class CornerMovementManager(BaseMovementManager):
                 return self.simulator.target_lattice, fill_rate, execution_time
             
             # Step 8: Squeeze rows left (full range)
+            print(f"Step 8.{iteration+1}: Squeezing rows left...")
+            step_start_time = time.time()
             self.simulator.movement_history = []
             left_atoms_moved = 0
             for row in range(target_end_row):  # Only up to target_end_row
                 left_atoms_moved += self.squeeze_row_left(row)
             total_movement_history.extend(self.simulator.movement_history)
             
+            # Calculate physical time for this step
+            physical_time = sum(move.get('time', 0) for move in self.simulator.movement_history)
+            print(f"Left squeezing complete in {time.time() - step_start_time:.3f} seconds, physical time: {physical_time:.6f} seconds")
+            print(f"Moved {left_atoms_moved} atoms during left squeezing")
+            
+            # Check defects after this step
+            target_region = self.simulator.field[target_start_row:target_end_row, target_start_col:target_end_col]
+            defects_after_left = np.sum(target_region == 0)
+            print(f"Defects after left squeezing: {defects_after_left}")
+            
             # Step 9: Repeat steps 4-5 (right edge and up squeezing)
+            print(f"Step 9.{iteration+1}: Repeat right edge and up squeezing...")
             inner_atoms_moved = 0
             for inner_iter in range(3):  # Limit inner iterations
+                print(f"  Inner iteration {inner_iter+1}/3...")
                 # Squeeze right (only under target zone and up to target_end_col)
+                step_start_time = time.time()
                 self.simulator.movement_history = []
                 inner_right_atoms_moved = 0
                 for row in range(target_end_row, self.simulator.initial_size[0]):
                     inner_right_atoms_moved += self.squeeze_row_right(row, start_col=0, end_col=target_end_col)
                 total_movement_history.extend(self.simulator.movement_history)
                 
+                # Calculate physical time for this step
+                physical_time = sum(move.get('time', 0) for move in self.simulator.movement_history)
+                print(f"  Right squeezing complete in {time.time() - step_start_time:.3f} seconds, physical time: {physical_time:.6f} seconds")
+                print(f"  Moved {inner_right_atoms_moved} atoms during right squeezing")
+                
                 inner_atoms_moved += inner_right_atoms_moved
                 if inner_right_atoms_moved == 0:
+                    print("  No atoms moved during right squeezing, breaking inner iteration")
                     break
+                
+                # Check defects after this step
+                target_region = self.simulator.field[target_start_row:target_end_row, target_start_col:target_end_col]
+                defects_after_inner_right = np.sum(target_region == 0)
+                print(f"  Defects after right squeezing: {defects_after_inner_right}")
                 
                 # Check if target zone is full after right squeeze
                 is_full, fill_rate = self.check_target_zone_full()
                 if is_full:
+                    print("Perfect arrangement achieved after inner right squeezing!")
                     self.simulator.target_lattice = self.simulator.field.copy()
                     execution_time = time.time() - start_time
                     # Make sure to update the movement history before returning
@@ -742,17 +844,29 @@ class CornerMovementManager(BaseMovementManager):
                     return self.simulator.target_lattice, fill_rate, execution_time
                 
                 # Squeeze up (only up to target_end_col)
+                step_start_time = time.time()
                 self.simulator.movement_history = []
                 inner_up_atoms_moved = 0
                 for col in range(target_end_col):
                     inner_up_atoms_moved += self.squeeze_column_up(col)
                 total_movement_history.extend(self.simulator.movement_history)
                 
+                # Calculate physical time for this step
+                physical_time = sum(move.get('time', 0) for move in self.simulator.movement_history)
+                print(f"  Column squeezing complete in {time.time() - step_start_time:.3f} seconds, physical time: {physical_time:.6f} seconds")
+                print(f"  Moved {inner_up_atoms_moved} atoms during column squeezing")
+                
                 inner_atoms_moved += inner_up_atoms_moved
+                
+                # Check defects after this step
+                target_region = self.simulator.field[target_start_row:target_end_row, target_start_col:target_end_col]
+                defects_after_inner_up = np.sum(target_region == 0)
+                print(f"  Defects after column squeezing: {defects_after_inner_up}")
                 
                 # Check if target zone is full after column squeeze
                 is_full, fill_rate = self.check_target_zone_full()
                 if is_full:
+                    print("Perfect arrangement achieved after inner column squeezing!")
                     self.simulator.target_lattice = self.simulator.field.copy()
                     execution_time = time.time() - start_time
                     # Make sure to update the movement history before returning
@@ -761,33 +875,61 @@ class CornerMovementManager(BaseMovementManager):
                         self.simulator.visualizer.animate_movements(total_movement_history)
                     return self.simulator.target_lattice, fill_rate, execution_time
             
+            # Check progress after inner iterations
+            print(f"Total atoms moved in inner iterations: {inner_atoms_moved}")
+            
             # Check progress
             target_region = self.simulator.field[target_start_row:target_end_row, 
                                                 target_start_col:target_end_col]
             current_defects = np.sum(target_region == 0)
             if current_defects == 0:
+                print("Perfect arrangement achieved after inner iterations!")
                 break
             
-            if previous_defects - current_defects < min_improvement:
+            defect_improvement = previous_defects - current_defects
+            print(f"Improvement in bottom edge iteration {iteration+1}: {defect_improvement} defects fixed")
+            
+            if defect_improvement < min_improvement:
+                print(f"Stopping iterations: improvement ({defect_improvement}) below threshold ({min_improvement})")
                 break
             previous_defects = current_defects
         
         # Step 10: Move lower right corner block leftward
+        print("\nStep 10: Moving lower right corner block leftward...")
+        step_start_time = time.time()
         self.simulator.movement_history = []
         corner_atoms_moved = self.move_lower_right_corner(target_end_row, target_end_col)
         total_movement_history.extend(self.simulator.movement_history)
         
+        # Calculate physical time for this step
+        physical_time = sum(move.get('time', 0) for move in self.simulator.movement_history)
+        print(f"Corner block movement complete in {time.time() - step_start_time:.3f} seconds, physical time: {physical_time:.6f} seconds")
+        print(f"Moved {corner_atoms_moved} atoms in corner block")
+        
         if corner_atoms_moved > 0:
             # Step 11: Squeeze columns up (only up to target_end_col)
+            print("\nStep 11: Final column squeeze up...")
+            step_start_time = time.time()
             self.simulator.movement_history = []
             final_up_atoms_moved = 0
             for col in range(target_end_col):
                 final_up_atoms_moved += self.squeeze_column_up(col)
             total_movement_history.extend(self.simulator.movement_history)
             
+            # Calculate physical time for this step
+            physical_time = sum(move.get('time', 0) for move in self.simulator.movement_history)
+            print(f"Final column squeezing complete in {time.time() - step_start_time:.3f} seconds, physical time: {physical_time:.6f} seconds")
+            print(f"Moved {final_up_atoms_moved} atoms during final column squeezing")
+            
+            # Check defects after this step
+            target_region = self.simulator.field[target_start_row:target_end_row, target_start_col:target_end_col]
+            defects_after_final_up = np.sum(target_region == 0)
+            print(f"Defects after final column squeezing: {defects_after_final_up}")
+            
             # Check if target zone is full after final column squeeze
             is_full, fill_rate = self.check_target_zone_full()
             if is_full:
+                print("Perfect arrangement achieved after final column squeezing!")
                 self.simulator.target_lattice = self.simulator.field.copy()
                 execution_time = time.time() - start_time
                 # Make sure to update the movement history before returning
@@ -797,30 +939,57 @@ class CornerMovementManager(BaseMovementManager):
                 return self.simulator.target_lattice, fill_rate, execution_time
             
             # Step 12: Squeeze rows left (up to target_end_row)
+            print("\nStep 12: Final row squeeze left...")
+            step_start_time = time.time()
             self.simulator.movement_history = []
             final_left_atoms_moved = 0
             for row in range(target_end_row):
                 final_left_atoms_moved += self.squeeze_row_left(row)
             total_movement_history.extend(self.simulator.movement_history)
+            
+            # Calculate physical time for this step
+            physical_time = sum(move.get('time', 0) for move in self.simulator.movement_history)
+            print(f"Final row squeezing complete in {time.time() - step_start_time:.3f} seconds, physical time: {physical_time:.6f} seconds")
+            print(f"Moved {final_left_atoms_moved} atoms during final row squeezing")
+            
+            # Check defects after this step
+            target_region = self.simulator.field[target_start_row:target_end_row, target_start_col:target_end_col]
+            defects_after_final_left = np.sum(target_region == 0)
+            print(f"Defects after final row squeezing: {defects_after_final_left}")
 
             # Step 13: Final right edge and up iterations
+            print("\nStep 13: Final right edge and up iterations...")
             for final_iter in range(3):  # Limit final iterations
+                print(f"Final iteration {final_iter+1}/3...")
                 atoms_moved = 0
                 
                 # Squeeze right (only under target zone and up to target_end_col)
+                step_start_time = time.time()
                 self.simulator.movement_history = []
                 final_right_atoms_moved = 0
                 for row in range(target_end_row, self.simulator.initial_size[0]):
                     final_right_atoms_moved += self.squeeze_row_right(row, start_col=0, end_col=target_end_col)
                 total_movement_history.extend(self.simulator.movement_history)
                 
+                # Calculate physical time for this step
+                physical_time = sum(move.get('time', 0) for move in self.simulator.movement_history)
+                print(f"Final right squeezing complete in {time.time() - step_start_time:.3f} seconds, physical time: {physical_time:.6f} seconds")
+                print(f"Moved {final_right_atoms_moved} atoms during final right squeezing")
+                
                 atoms_moved += final_right_atoms_moved
                 if atoms_moved == 0:
+                    print("No atoms moved during final right squeezing, breaking iteration")
                     break
+                
+                # Check defects after this step
+                target_region = self.simulator.field[target_start_row:target_end_row, target_start_col:target_end_col]
+                defects_after_final_right = np.sum(target_region == 0)
+                print(f"Defects after final right squeezing: {defects_after_final_right}")
                 
                 # Check if target zone is full after final right squeeze
                 is_full, fill_rate = self.check_target_zone_full()
                 if is_full:
+                    print("Perfect arrangement achieved after final right squeezing!")
                     self.simulator.target_lattice = self.simulator.field.copy()
                     execution_time = time.time() - start_time
                     # Make sure to update the movement history before returning
@@ -830,17 +999,29 @@ class CornerMovementManager(BaseMovementManager):
                     return self.simulator.target_lattice, fill_rate, execution_time
                 
                 # Squeeze up
+                step_start_time = time.time()
                 self.simulator.movement_history = []
                 final_up_atoms_moved = 0
                 for col in range(target_end_col):
                     final_up_atoms_moved += self.squeeze_column_up(col)
                 total_movement_history.extend(self.simulator.movement_history)
                 
+                # Calculate physical time for this step
+                physical_time = sum(move.get('time', 0) for move in self.simulator.movement_history)
+                print(f"Final column squeezing complete in {time.time() - step_start_time:.3f} seconds, physical time: {physical_time:.6f} seconds")
+                print(f"Moved {final_up_atoms_moved} atoms during final column squeezing")
+                
                 atoms_moved += final_up_atoms_moved
+                
+                # Check defects after this step
+                target_region = self.simulator.field[target_start_row:target_end_row, target_start_col:target_end_col]
+                defects_after_final_up = np.sum(target_region == 0)
+                print(f"Defects after final column squeezing: {defects_after_final_up}")
                 
                 # Check if target zone is full after final column squeeze
                 is_full, fill_rate = self.check_target_zone_full()
                 if is_full:
+                    print("Perfect arrangement achieved after final column squeezing!")
                     self.simulator.target_lattice = self.simulator.field.copy()
                     execution_time = time.time() - start_time
                     # Make sure to update the movement history before returning
@@ -855,9 +1036,11 @@ class CornerMovementManager(BaseMovementManager):
         target_region = self.simulator.field[target_start_row:target_end_row, 
                                         target_start_col:target_end_col]
         final_defects = np.sum(target_region == 0)
+        print(f"\nAfter main movements: {final_defects} defects remain, fill rate: {fill_rate:.2%}")
 
         # STEP 15: NEW ITERATIVE DEFECT REPAIR PROCESS
         if final_defects > 0:
+            print("\nStep 14: Starting iterative defect repair process...")
             repair_iteration = 0
             max_repair_iterations = 10  # Safety limit to prevent infinite loops
             
@@ -885,12 +1068,14 @@ class CornerMovementManager(BaseMovementManager):
             # Initial repair status
             repair_status = check_repair_status()
             previous_defects = repair_status["defects"]
+            print(f"Initial repair status: {repair_status['defects']} defects, {repair_status['available_atoms']} atoms available")
             
             while (not repair_status["is_full"] and 
                 repair_status["available_atoms"] > 0 and 
                 repair_iteration < max_repair_iterations):
                 
                 repair_iteration += 1
+                print(f"\nRepair iteration {repair_iteration}/{max_repair_iterations}...")
                 
                 # Clear movement history before repair to capture only repair movements
                 self.simulator.movement_history = []
@@ -910,14 +1095,18 @@ class CornerMovementManager(BaseMovementManager):
                 
                 # Calculate physical time for this repair cycle
                 physical_repair_time = sum(move.get('time', 0) for move in self.simulator.movement_history)
+                print(f"Repair attempt {repair_iteration} complete in {time.time() - repair_start_time:.3f} seconds, physical time: {physical_repair_time:.6f} seconds")
+                print(f"Moved {repair_atom_moves} atoms during repair")
                 
                 # Update repair status
                 repair_status = check_repair_status()
                 current_defects = repair_status["defects"]
                 defects_fixed = previous_defects - current_defects
+                print(f"Defects after repair iteration {repair_iteration}: {current_defects} (fixed {defects_fixed} defects)")
                 
                 # Check if we've made progress
                 if defects_fixed <= 0 and repair_iteration > 1:
+                    print(f"No improvement in this repair iteration - stopping further repair attempts")
                     break
                     
                 # Update for next iteration
@@ -925,17 +1114,20 @@ class CornerMovementManager(BaseMovementManager):
                 
                 # If target is full, exit loop
                 if repair_status["is_full"]:
+                    print("Perfect arrangement achieved after repair!")
                     break
             
             # Final repair results
             final_repair_status = check_repair_status()
             final_fill_rate = 1.0 - (final_repair_status["defects"] / (self.simulator.side_length ** 2))
+            print(f"Final repair status: {final_repair_status['defects']} defects remain, fill rate: {final_fill_rate:.2%}")
             
             # Set final state
             self.simulator.target_lattice = self.simulator.field.copy()
             fill_rate = final_fill_rate
         else:
             # No defects to repair
+            print("No defects to repair - target zone is already full!")
             self.simulator.target_lattice = self.simulator.field.copy()
         
         # Show visualization if requested
@@ -947,5 +1139,9 @@ class CornerMovementManager(BaseMovementManager):
         
         # Make sure to save the movement history in the simulator for reporting
         self.simulator.movement_history = total_movement_history
+        
+        print(f"\nCorner filling strategy completed in {execution_time:.3f} seconds")
+        print(f"Final fill rate: {fill_rate:.2%}")
+        print(f"Total physical movement time: {total_physical_time:.6f} seconds")
         
         return self.simulator.target_lattice, fill_rate, execution_time

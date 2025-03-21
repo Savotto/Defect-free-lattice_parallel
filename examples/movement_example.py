@@ -1,6 +1,11 @@
 """
-Example demonstrating the combined filling strategy for atom rearrangement.
-This applies row-wise centering, column-wise centering, and defect repair in sequence.
+Example demonstrating atom rearrangement strategies.
+This script initializes a lattice with a random distribution of atoms and
+applies a filling strategy to create a defect-free region.
+
+To switch between strategies, simply edit the strategy call in the code:
+- Use simulator.movement_manager.center_filling_strategy() for center filling
+- Use simulator.movement_manager.corner_filling_strategy() for corner filling
 """
 import numpy as np
 import matplotlib.pyplot as plt
@@ -8,13 +13,16 @@ import time
 from defect_free import LatticeSimulator, LatticeVisualizer
 
 def main():
-    # Initialize simulator with a reasonable size and occupation probability
-    # Using a fixed random seed for reproducible results
+    # Initialize simulator with default parameters
+    # Use a fixed random seed for reproducible results
     np.random.seed(42)
     
+    # Configuration parameters - modify these as needed
+    lattice_size = (50, 50)
+    occupation_prob = 0.7
+    
     # Step 1: Initialize the lattice
-    # Create simulator with initial 100x100 lattice and 50% occupation probability
-    simulator = LatticeSimulator(initial_size=(20, 20), occupation_prob=0.7)
+    simulator = LatticeSimulator(initial_size=lattice_size, occupation_prob=occupation_prob)
     simulator.generate_initial_lattice()
     
     # Step 2: Calculate the maximum possible target size based on available atoms
@@ -44,10 +52,18 @@ def main():
     visualizer.plot_lattice(initial_lattice, title="Initial Lattice")
     plt.show(block=False)
     
-    # Step 3: Apply rearrangement methods to make the target region defect-free
-    # This will be executed in the combined_filling_strategy below
-    print("\nApplying combined filling strategy...")
-    final_lattice, fill_rate, execution_time = simulator.movement_manager.corner_filling_strategy(show_visualization=True)
+    # Step 3: Apply rearrangement method
+    
+    # *** CHANGE THIS LINE TO SWITCH BETWEEN STRATEGIES ***
+    # Use either:
+    # - center_filling_strategy() for center filling
+    # - corner_filling_strategy() for corner filling
+    print("\nApplying filling strategy...")
+    final_lattice, fill_rate, execution_time = simulator.movement_manager.center_filling_strategy(show_visualization=True)
+    
+    # Name of the current strategy for display purposes
+    strategy_name = "Corner"  # Change this if you change the strategy above
+    
     # Store the final state
     after_filling_lattice = simulator.field.copy()
     
@@ -55,7 +71,7 @@ def main():
     target_region = simulator.movement_manager.target_region
     target_start_row, target_start_col, target_end_row, target_end_col = target_region
     
-    print(f"\nCombined filling completed in {execution_time:.3f} seconds")
+    print(f"\n{strategy_name} filling completed in {execution_time:.3f} seconds")
     print(f"Final fill rate: {fill_rate:.2%}")
     
     # Create a figure comparing initial and final states
@@ -72,7 +88,7 @@ def main():
     # Plot final state
     visualizer.plot_lattice(
         after_filling_lattice, 
-        title="After Combined Filling", 
+        title=f"After {strategy_name} Filling", 
         highlight_region=target_region,
         ax=axes[1]
     )

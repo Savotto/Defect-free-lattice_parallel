@@ -14,7 +14,7 @@ class LatticeSimulator:
     SITE_DISTANCE = 5.0  # μm
     MAX_ACCELERATION = 2750.0  # m/s²
     TRAP_TRANSFER_TIME = 15e-6  # seconds (15μs)
-    ATOM_LOSS_PROBABILITY = 0.0 # Based on experimental data
+    ATOM_LOSS_PROBABILITY = 0.1 # Based on experimental data
     MAX_VELOCITY = 0.3  # m/s
     SETTLING_TIME = 1e-6  # seconds
     

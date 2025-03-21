@@ -1,620 +1,709 @@
 #!/usr/bin/env python3
 """
-Script to compare the center-based and corner-based filling strategies.
+Compare corner and center movement strategies for defect-free atom rearrangement.
+This script allows testing both strategies with the same initial conditions
+and comparing their performance metrics.
 """
+import time
 import numpy as np
 import matplotlib.pyplot as plt
-import time
-import argparse
-import pandas as pd
 from defect_free import LatticeSimulator, LatticeVisualizer
 
-def run_comparison(size=(30, 30), occupation_prob=0.7, random_seed=42, 
-                  show_visualization=True, save_visualization=False):
+def run_comparison(initial_size=(50, 50), 
+                  occupation_prob=0.7, 
+                  seed=42, 
+                  atom_loss_probability=0.1,
+                  show_visualization=True,
+                  save_figures=False,
+                  output_dir="comparison_results"):
     """
-    Run both filling strategies with the same initial conditions and compare performance.
+    Run a comparison between corner and center movement strategies.
     
     Args:
-        size: Initial lattice dimensions (rows, columns)
-        occupation_prob: Probability of atom occupation
-        random_seed: Random seed for reproducibility
-        show_visualization: Whether to show animated visualization
-        save_visualization: Whether to save visualization to file
+        initial_size: Tuple of (rows, cols) for initial lattice size
+        occupation_prob: Probability of atom occupation (0.0 to 1.0)
+        seed: Random seed for reproducible results
+        atom_loss_probability: Probability of losing atoms during movement
+        show_visualization: Whether to display visualizations
+        save_figures: Whether to save figures to files
+        output_dir: Directory to save output files (if save_figures is True)
     
     Returns:
-        Dictionary with results from both strategies
+        Dictionary with comparison results
     """
-    print(f"Testing with lattice size: {size}, occupation: {occupation_prob}")
+    # Set random seed for reproducible results
+    np.random.seed(seed)
     
-    # Fix random seed for reproducible results
-    np.random.seed(random_seed)
-    
-    # Initialize simulator with specified parameters
-    simulator = LatticeSimulator(initial_size=size, occupation_prob=occupation_prob)
-    simulator.generate_initial_lattice()
-    
-    # Initialize visualizer
-    visualizer = LatticeVisualizer(simulator)
-    simulator.visualizer = visualizer
-    
-    # Store initial field
-    initial_field = simulator.field.copy()
-    
-    # Run center-based strategy
-    print("\n============= Testing Center-Based Strategy =============")
-    center_start_time = time.time()
-    center_lattice, center_fill_rate, center_execution_time = simulator.movement_manager.rearrange_for_defect_free(
-        strategy='center', 
-        show_visualization=show_visualization
-    )
-    center_total_time = time.time() - center_start_time
-    
-    # Store center strategy results
-    # Make sure target_region is initialized
-    if simulator.movement_manager.center_manager.target_region is None:
-        simulator.movement_manager.center_manager.initialize_target_region()
-    center_target_region = simulator.movement_manager.center_manager.target_region
-    
-    # Continue only if we have a valid target region
-    if center_target_region is None:
-        print("ERROR: Center target region is None. Cannot continue with comparison.")
-        return None
-        
-    center_movements = len(simulator.movement_history)
-    center_physical_time = sum(move['time'] for move in simulator.movement_history)
-    center_history = simulator.movement_history.copy()
-    
-    # Count defects in center target region
-    center_target_start_row, center_target_start_col, center_target_end_row, center_target_end_col = center_target_region
-    center_defects = np.sum(center_lattice[center_target_start_row:center_target_end_row, 
-                                         center_target_start_col:center_target_end_col] == 0)
-    
-    print(f"Center-based strategy results:")
-    print(f"  Target region: {center_target_region}")
-    print(f"  Fill rate: {center_fill_rate:.2%}")
-    print(f"  Execution time: {center_execution_time:.3f} seconds")
-    print(f"  Physical movement time: {center_physical_time:.6f} seconds")
-    print(f"  Total movements: {center_movements}")
-    print(f"  Remaining defects: {center_defects}")
-    
-    # Save center visualization if requested
-    if save_visualization:
-        if hasattr(visualizer, 'ani') and visualizer.ani is not None:
-            visualizer.save_animation('center_strategy_animation.mp4', fps=10)
-            print("Center strategy animation saved to 'center_strategy_animation.mp4'")
-    
-    # Reset simulator for corner-based strategy
-    simulator = LatticeSimulator(initial_size=size, occupation_prob=occupation_prob)
-    # Make sure we have the exact same initial field
-    simulator.field = initial_field.copy()
-    simulator.total_atoms = np.sum(initial_field)
-    
-    simulator.slm_lattice = initial_field.copy()
-    # Initialize visualizer
-    visualizer = LatticeVisualizer(simulator)
-    simulator.visualizer = visualizer
-    
-    # Run corner-based strategy
-    print("\n============= Testing Corner-Based Strategy =============")
-    corner_start_time = time.time()
-    corner_lattice, corner_fill_rate, corner_execution_time = simulator.movement_manager.rearrange_for_defect_free(
-        strategy='corner', 
-        show_visualization=show_visualization
-    )
-    corner_total_time = time.time() - corner_start_time
-    
-    # Store corner strategy results
-    # Make sure target_region is initialized
-    if simulator.movement_manager.corner_manager.target_region is None:
-        simulator.movement_manager.corner_manager.initialize_target_region()
-    corner_target_region = simulator.movement_manager.corner_manager.target_region
-    
-    # Continue only if we have a valid target region
-    if corner_target_region is None:
-        print("ERROR: Corner target region is None. Cannot continue with comparison.")
-        return None
-    
-    corner_movements = len(simulator.movement_history)
-    corner_physical_time = sum(move['time'] for move in simulator.movement_history)
-    corner_history = simulator.movement_history.copy()
-    
-    # Count defects in corner target region
-    corner_target_start_row, corner_target_start_col, corner_target_end_row, corner_target_end_col = corner_target_region
-    corner_defects = np.sum(corner_lattice[corner_target_start_row:corner_target_end_row, 
-                                         corner_target_start_col:corner_target_end_col] == 0)
-    
-    print(f"Corner-based strategy results:")
-    print(f"  Target region: {corner_target_region}")
-    print(f"  Fill rate: {corner_fill_rate:.2%}")
-    print(f"  Execution time: {corner_execution_time:.3f} seconds")
-    print(f"  Physical movement time: {corner_physical_time:.6f} seconds")
-    print(f"  Total movements: {corner_movements}")
-    print(f"  Remaining defects: {corner_defects}")
-    
-    # Save corner visualization if requested
-    if save_visualization:
-        if hasattr(visualizer, 'ani') and visualizer.ani is not None:
-            visualizer.save_animation('corner_strategy_animation.mp4', fps=10)
-            print("Corner strategy animation saved to 'corner_strategy_animation.mp4'")
-    
-    # Create comparison visualization
-    create_comparison_visualization(
-        initial_field=initial_field,
-        center_field=center_lattice,
-        corner_field=corner_lattice,
-        center_target=center_target_region,
-        corner_target=corner_target_region,
-        center_results={
-            'fill_rate': center_fill_rate,
-            'execution_time': center_execution_time,
-            'physical_time': center_physical_time,
-            'movements': center_movements,
-            'defects': center_defects
-        },
-        corner_results={
-            'fill_rate': corner_fill_rate,
-            'execution_time': corner_execution_time,
-            'physical_time': corner_physical_time,
-            'movements': corner_movements,
-            'defects': corner_defects
-        },
-        save_fig=save_visualization
-    )
-    
-    # Compute detailed comparison metrics
-    print("\n============= Strategy Comparison =============")
-    print(f"Fill rate - Center: {center_fill_rate:.2%}, Corner: {corner_fill_rate:.2%}")
-    print(f"Execution time - Center: {center_execution_time:.3f}s, Corner: {corner_execution_time:.3f}s")
-    print(f"Physical time - Center: {center_physical_time:.6f}s, Corner: {corner_physical_time:.6f}s")
-    print(f"Movements - Center: {center_movements}, Corner: {corner_movements}")
-    print(f"Defects - Center: {center_defects}, Corner: {corner_defects}")
-    
-    # Determine which strategy was better
-    fill_diff = corner_fill_rate - center_fill_rate
-    time_ratio = corner_execution_time / center_execution_time if center_execution_time > 0 else float('inf')
-    physical_time_ratio = corner_physical_time / center_physical_time if center_physical_time > 0 else float('inf')
-    
-    print("\nPerformance Summary:")
-    if fill_diff > 0.01:  # 1% better fill rate
-        print(f"Corner-based strategy achieved {fill_diff:.2%} better fill rate")
-    elif fill_diff < -0.01:  # 1% worse fill rate
-        print(f"Center-based strategy achieved {-fill_diff:.2%} better fill rate")
-    else:
-        print(f"Both strategies achieved similar fill rates (difference: {fill_diff:.2%})")
-    
-    if time_ratio < 0.9:  # 10% faster
-        print(f"Corner-based strategy was {(1-time_ratio)*100:.1f}% faster in execution time")
-    elif time_ratio > 1.1:  # 10% slower
-        print(f"Corner-based strategy was {(time_ratio-1)*100:.1f}% slower in execution time")
-    else:
-        print(f"Both strategies had similar execution times (ratio: {time_ratio:.2f})")
-    
-    if physical_time_ratio < 0.9:  # 10% faster
-        print(f"Corner-based strategy was {(1-physical_time_ratio)*100:.1f}% faster in physical movement time")
-    elif physical_time_ratio > 1.1:  # 10% slower
-        print(f"Corner-based strategy was {(physical_time_ratio-1)*100:.1f}% slower in physical movement time")
-    else:
-        print(f"Both strategies had similar physical movement times (ratio: {physical_time_ratio:.2f})")
-    
-    # Return results for potential further analysis
-    return {
-        'parameters': {
-            'size': size,
-            'occupation_prob': occupation_prob,
-            'random_seed': random_seed
-        },
-        'center': {
-            'field': center_lattice,
-            'target_region': center_target_region,
-            'fill_rate': center_fill_rate,
-            'execution_time': center_execution_time,
-            'physical_time': center_physical_time,
-            'movements': center_movements,
-            'defects': center_defects,
-            'history': center_history
-        },
-        'corner': {
-            'field': corner_lattice,
-            'target_region': corner_target_region,
-            'fill_rate': corner_fill_rate,
-            'execution_time': corner_execution_time,
-            'physical_time': corner_physical_time,
-            'movements': corner_movements,
-            'defects': corner_defects,
-            'history': corner_history
+    # Dictionary to store comparison results
+    results = {
+        "center": {},
+        "corner": {},
+        "parameters": {
+            "initial_size": initial_size,
+            "occupation_prob": occupation_prob,
+            "seed": seed,
+            "atom_loss_probability": atom_loss_probability
         }
     }
-
-def create_comparison_visualization(initial_field, center_field, corner_field,
-                                   center_target, corner_target, center_results,
-                                   corner_results, save_fig=False):
-    """
-    Create visualizations comparing both strategies.
     
-    Args:
-        initial_field: The initial lattice field
-        center_field: The final field after center-based strategy
-        corner_field: The final field after corner-based strategy
-        center_target: Target region for center strategy
-        corner_target: Target region for corner strategy
-        center_results: Dictionary with center strategy metrics
-        corner_results: Dictionary with corner strategy metrics
-        save_fig: Whether to save figures to files
-    """
-    # Create a visualizer (just for its plotting methods)
-    tmp_simulator = LatticeSimulator()
-    tmp_simulator.field = initial_field
-    visualizer = LatticeVisualizer(tmp_simulator)
+    # Create output directory if saving figures
+    if save_figures:
+        import os
+        os.makedirs(output_dir, exist_ok=True)
     
-    # Create figure for comparing fields
-    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    # Create initial lattice that will be copied for both strategies
+    print("\n" + "="*50)
+    print(f"Initializing lattice with size {initial_size} and {occupation_prob:.1%} occupation")
+    print(f"Atom loss probability: {atom_loss_probability:.1%}")
     
-    # Plot initial field
-    visualizer.plot_lattice(
-        initial_field, 
-        title="Initial Lattice", 
-        ax=axes[0]
+    temp_simulator = LatticeSimulator(
+        initial_size=initial_size, 
+        occupation_prob=occupation_prob,
+        physical_constraints={"atom_loss_probability": atom_loss_probability}
     )
+    initial_lattice = temp_simulator.generate_initial_lattice()
+    total_atoms = np.sum(initial_lattice)
+    print(f"Generated initial lattice with {total_atoms} atoms")
     
-    # Plot center strategy result
-    visualizer.plot_lattice(
-        center_field, 
-        title=f"Center Strategy (Fill: {center_results['fill_rate']:.2%})", 
-        highlight_region=center_target,
-        ax=axes[1]
-    )
+    # Estimate max defect-free size
+    max_square_size = temp_simulator.calculate_max_defect_free_size()
+    print(f"Estimated maximum defect-free size: {max_square_size}x{max_square_size}")
     
-    # Plot corner strategy result
-    visualizer.plot_lattice(
-        corner_field, 
-        title=f"Corner Strategy (Fill: {corner_results['fill_rate']:.2%})", 
-        highlight_region=corner_target,
-        ax=axes[2]
-    )
+    # Import the time module separately in the function scope
+    import time as time_module
     
-    plt.tight_layout()
-    fig.suptitle(f"Comparison of Center vs Corner Filling Strategies", fontsize=16, y=1.05)
-    
-    if save_fig:
-        plt.savefig("strategy_comparison_fields.png", bbox_inches='tight', dpi=300)
-        print("Field comparison saved to 'strategy_comparison_fields.png'")
-    
-    # Create figure for comparing target regions
-    fig2, axes2 = plt.subplots(1, 2, figsize=(12, 6))
-    
-    # Extract target regions
-    center_target_field = center_field[center_target[0]:center_target[2], 
-                                     center_target[1]:center_target[3]]
-    corner_target_field = corner_field[corner_target[0]:corner_target[2], 
-                                     corner_target[1]:corner_target[3]]
-    
-    # Create heat maps of defects (1 = defect, 0 = atom)
-    im1 = axes2[0].imshow(1-center_target_field, cmap='Reds', vmin=0, vmax=1)
-    axes2[0].set_title(f"Center Strategy: {center_results['defects']} defects")
-    
-    im2 = axes2[1].imshow(1-corner_target_field, cmap='Reds', vmin=0, vmax=1)
-    axes2[1].set_title(f"Corner Strategy: {corner_results['defects']} defects")
-    
-    # Add colorbars
-    plt.colorbar(im1, ax=axes2[0], label='Defect (1 = defect, 0 = atom)')
-    plt.colorbar(im2, ax=axes2[1], label='Defect (1 = defect, 0 = atom)')
-    
-    for ax in axes2:
-        ax.set_xticks([])
-        ax.set_yticks([])
-    
-    plt.tight_layout()
-    fig2.suptitle(f"Defect Comparison in Target Regions", fontsize=16, y=1.05)
-    
-    if save_fig:
-        plt.savefig("strategy_comparison_defects.png", bbox_inches='tight', dpi=300)
-        print("Defect comparison saved to 'strategy_comparison_defects.png'")
-    
-    # Create performance metrics comparison
-    fig3, ax3 = plt.subplots(figsize=(10, 6))
-    
-    # Extract metrics
-    metrics = ['Fill Rate (%)', 'Execution Time (s)', 'Physical Time (s)', 'Movements', 'Defects']
-    center_values = [
-        center_results['fill_rate'] * 100,
-        center_results['execution_time'],
-        center_results['physical_time'],
-        center_results['movements'],
-        center_results['defects']
-    ]
-    corner_values = [
-        corner_results['fill_rate'] * 100,
-        corner_results['execution_time'],
-        corner_results['physical_time'],
-        corner_results['movements'],
-        corner_results['defects']
-    ]
-    
-    # Convert to log scale for better visualization of diverse metrics
-    center_values_log = np.log10([max(0.001, v) for v in center_values])
-    corner_values_log = np.log10([max(0.001, v) for v in corner_values])
-    
-    # Create bar chart
-    x = np.arange(len(metrics))
-    width = 0.35
-    
-    ax3.bar(x - width/2, center_values_log, width, label='Center Strategy')
-    ax3.bar(x + width/2, corner_values_log, width, label='Corner Strategy')
-    
-    # Add labels and ticks
-    ax3.set_xticks(x)
-    ax3.set_xticklabels(metrics)
-    ax3.set_ylabel('Log10 Scale')
-    ax3.set_title('Performance Metrics Comparison (Log Scale)')
-    ax3.legend()
-    
-    # Add actual values as text on bars
-    for i, v in enumerate(center_values):
-        if v >= 100:
-            text = f"{v:.0f}"
-        elif v >= 10:
-            text = f"{v:.1f}"
-        elif v >= 1:
-            text = f"{v:.2f}"
-        elif v >= 0.001:
-            text = f"{v:.4f}"
-        else:
-            text = f"{v:.0e}"
-        ax3.text(i - width/2, center_values_log[i] + 0.1, text, 
-                ha='center', va='bottom', rotation=90, fontsize=8)
-    
-    for i, v in enumerate(corner_values):
-        if v >= 100:
-            text = f"{v:.0f}"
-        elif v >= 10:
-            text = f"{v:.1f}"
-        elif v >= 1:
-            text = f"{v:.2f}"
-        elif v >= 0.001:
-            text = f"{v:.4f}"
-        else:
-            text = f"{v:.0e}"
-        ax3.text(i + width/2, corner_values_log[i] + 0.1, text, 
-                ha='center', va='bottom', rotation=90, fontsize=8)
-    
-    plt.tight_layout()
-    
-    if save_fig:
-        plt.savefig("strategy_comparison_metrics.png", bbox_inches='tight', dpi=300)
-        print("Metrics comparison saved to 'strategy_comparison_metrics.png'")
-    
-    # Show all plots
-    plt.show()
-
-def run_multi_test(sizes=[(20, 20), (40, 40), (60, 60)], 
-                  occupations=[0.5, 0.7, 0.9],
-                  save_results=True,
-                  show_visualization=False):
-    """
-    Run tests across multiple lattice sizes and occupation probabilities.
-    
-    Args:
-        sizes: List of (rows, cols) tuples for initial lattice sizes
-        occupations: List of occupation probabilities
-        save_results: Whether to save results to CSV
-        show_visualization: Whether to show visualizations
-    """
-    results = []
-    
-    for size in sizes:
-        for occupation in occupations:
-            print(f"\n{'='*60}")
-            print(f"Testing with lattice size: {size}, occupation: {occupation}")
-            print(f"{'='*60}")
-            
-            # Run the comparison
-            result = run_comparison(
-                size=size,
-                occupation_prob=occupation,
-                show_visualization=show_visualization,
-                save_visualization=save_results
-            )
-            
-            # Add to results
-            results.append({
-                'size': f"{size[0]}x{size[1]}",
-                'occupation': occupation,
-                'center_fill_rate': result['center']['fill_rate'],
-                'corner_fill_rate': result['corner']['fill_rate'],
-                'center_execution_time': result['center']['execution_time'],
-                'corner_execution_time': result['corner']['execution_time'],
-                'center_physical_time': result['center']['physical_time'],
-                'corner_physical_time': result['corner']['physical_time'],
-                'center_movements': result['center']['movements'],
-                'corner_movements': result['corner']['movements'],
-                'center_defects': result['center']['defects'],
-                'corner_defects': result['corner']['defects'],
-                'fill_rate_diff': result['corner']['fill_rate'] - result['center']['fill_rate'],
-                'exec_time_ratio': result['corner']['execution_time'] / max(0.001, result['center']['execution_time']),
-                'phys_time_ratio': result['corner']['physical_time'] / max(0.001, result['center']['physical_time']),
-                'movement_ratio': result['corner']['movements'] / max(1, result['center']['movements'])
-            })
-    
-    # Convert to DataFrame for analysis
-    df = pd.DataFrame(results)
-    
-    # Print summary table
-    print("\n============= Summary of All Tests =============")
-    print(df[['size', 'occupation', 'center_fill_rate', 'corner_fill_rate', 'fill_rate_diff',
-              'center_execution_time', 'corner_execution_time', 'exec_time_ratio']].to_string(index=False))
-    
-    if save_results:
-        # Save to CSV
-        timestamp = time.strftime("%Y%m%d-%H%M%S")
-        filename = f"strategy_comparison_results_{timestamp}.csv"
-        df.to_csv(filename, index=False)
-        print(f"\nResults saved to {filename}")
+    # Function to run a single strategy
+    def run_strategy(strategy):
+        print("\n" + "-"*50)
+        print(f"Testing {strategy.upper()} strategy")
         
-        # Create summary plots
-        create_summary_plots(df, save_fig=True)
+        # Initialize simulator with the same initial lattice
+        simulator = LatticeSimulator(
+            initial_size=initial_size, 
+            occupation_prob=occupation_prob,
+            physical_constraints={"atom_loss_probability": atom_loss_probability}
+        )
+        
+        # Use the same initial lattice for fair comparison
+        simulator.field = initial_lattice.copy()
+        simulator.slm_lattice = initial_lattice.copy()
+        simulator.total_atoms = total_atoms
+        simulator.side_length = max_square_size
+        
+        # Initialize visualizer
+        visualizer = LatticeVisualizer(simulator)
+        simulator.visualizer = visualizer
+        
+        # Run the rearrangement
+        start_time = time_module.time()
+        if strategy == "center":
+            final_lattice, fill_rate, execution_time = simulator.movement_manager.combined_filling_strategy(
+                show_visualization=False  # We'll show visualizations at the end
+            )
+        else:  # corner
+            final_lattice, fill_rate, execution_time = simulator.movement_manager.corner_filling_strategy(
+                show_visualization=False  # We'll show visualizations at the end
+            )
+        total_time = time_module.time() - start_time
+        
+        # Calculate physical time from movement history
+        physical_time = sum(move.get('time', 0) for move in simulator.movement_history)
+        
+        # Get target region
+        target_region = simulator.movement_manager.target_region
+        target_start_row, target_start_col, target_end_row, target_end_col = target_region
+        
+        # Count defects
+        target_zone = simulator.field[target_start_row:target_end_row, 
+                                      target_start_col:target_end_col]
+        defects = np.sum(target_zone == 0)
+        
+        # Count movements
+        total_movements = len(simulator.movement_history)
+        total_atom_moves = sum(len(move.get('moves', [])) for move in simulator.movement_history)
+        
+        # Store results
+        results[strategy] = {
+            "fill_rate": fill_rate,
+            "execution_time": execution_time,
+            "total_time": total_time,
+            "physical_time": physical_time,
+            "defects": defects,
+            "total_movements": total_movements,
+            "total_atom_moves": total_atom_moves,
+            "simulator": simulator,
+            "final_lattice": final_lattice
+        }
+        
+        # Print results
+        print(f"\nResults for {strategy.upper()} strategy:")
+        print(f"Fill rate: {fill_rate:.2%}")
+        print(f"Remaining defects: {defects}")
+        print(f"Algorithm execution time: {execution_time:.3f} seconds")
+        print(f"Physical movement time: {physical_time:.6f} seconds")
+        print(f"Total movements: {total_movements}")
+        print(f"Total atom moves: {total_atom_moves}")
+        
+        # Create visualization if requested
+        if show_visualization or save_figures:
+            # Show final analysis figure
+            fig_analysis = visualizer.show_final_analysis()
+            if save_figures:
+                fig_analysis.savefig(f"{output_dir}/{strategy}_final_analysis.png", dpi=300, bbox_inches='tight')
+            
+            # Show density heatmap
+            fig_heatmap = visualizer.plot_density_heatmap()
+            if save_figures:
+                fig_heatmap.savefig(f"{output_dir}/{strategy}_density_heatmap.png", dpi=300, bbox_inches='tight')
+            
+            # Show movement opportunities (helps diagnose why some defects couldn't be filled)
+            if defects > 0:
+                fig_opportunities = visualizer.visualize_movement_opportunities()
+                if save_figures:
+                    fig_opportunities.savefig(f"{output_dir}/{strategy}_movement_opportunities.png", dpi=300, bbox_inches='tight')
+            
+            # Don't display figures yet if we're comparing both strategies
+            if not show_visualization:
+                plt.close('all')
+                
+        return simulator
     
-    return df
+    # Run both strategies
+    center_simulator = run_strategy("center")
+    corner_simulator = run_strategy("corner")
+    
+    # Compare and print summary
+    print("\n" + "="*50)
+    print("COMPARISON SUMMARY")
+    print("-"*50)
+    
+    # Compare fill rates
+    center_fill = results["center"]["fill_rate"]
+    corner_fill = results["corner"]["fill_rate"]
+    print(f"Fill rates: Center = {center_fill:.2%}, Corner = {corner_fill:.2%}")
+    if center_fill > corner_fill:
+        fill_diff = center_fill - corner_fill
+        print(f"Center strategy achieved {fill_diff:.2%} higher fill rate")
+    elif corner_fill > center_fill:
+        fill_diff = corner_fill - center_fill
+        print(f"Corner strategy achieved {fill_diff:.2%} higher fill rate")
+    else:
+        print("Both strategies achieved the same fill rate")
+    
+    # Compare execution timesf
+    center_time = results["center"]["execution_time"]
+    corner_time = results["corner"]["execution_time"]
+    print(f"Execution times: Center = {center_time:.3f}s, Corner = {corner_time:.3f}s")
+    if center_time < corner_time:
+        time_diff = corner_time - center_time
+        time_pct = (time_diff / corner_time) * 100
+        print(f"Center strategy was {time_diff:.3f}s ({time_pct:.1f}%) faster")
+    elif corner_time < center_time:
+        time_diff = center_time - corner_time
+        time_pct = (time_diff / center_time) * 100
+        print(f"Corner strategy was {time_diff:.3f}s ({time_pct:.1f}%) faster")
+    else:
+        print("Both strategies took the same execution time")
+    
+    # Compare physical times
+    center_physical = results["center"]["physical_time"]
+    corner_physical = results["corner"]["physical_time"]
+    print(f"Physical times: Center = {center_physical:.6f}s, Corner = {corner_physical:.6f}s")
+    if center_physical < corner_physical:
+        physical_diff = corner_physical - center_physical
+        physical_pct = (physical_diff / corner_physical) * 100
+        print(f"Center strategy was {physical_diff:.6f}s ({physical_pct:.1f}%) more efficient in physical time")
+    elif corner_physical < center_physical:
+        physical_diff = center_physical - corner_physical
+        physical_pct = (physical_diff / center_physical) * 100
+        print(f"Corner strategy was {physical_diff:.6f}s ({physical_pct:.1f}%) more efficient in physical time")
+    else:
+        print("Both strategies had same physical movement time")
+    
+    # Compare movement complexity
+    center_moves = results["center"]["total_atom_moves"]
+    corner_moves = results["corner"]["total_atom_moves"]
+    print(f"Atom moves: Center = {center_moves}, Corner = {corner_moves}")
+    if center_moves < corner_moves:
+        moves_diff = corner_moves - center_moves
+        moves_pct = (moves_diff / corner_moves) * 100
+        print(f"Center strategy required {moves_diff} ({moves_pct:.1f}%) fewer atom movements")
+    elif corner_moves < center_moves:
+        moves_diff = center_moves - corner_moves
+        moves_pct = (moves_diff / center_moves) * 100
+        print(f"Corner strategy required {moves_diff} ({moves_pct:.1f}%) fewer atom movements")
+    else:
+        print("Both strategies required the same number of atom movements")
+    
+    # Create direct comparison visualization if requested
+    if show_visualization or save_figures:
+        # Create a figure comparing both strategies
+        fig, axes = plt.subplots(2, 2, figsize=(16, 14))
+        
+        # Get target regions
+        center_target = center_simulator.movement_manager.target_region
+        corner_target = corner_simulator.movement_manager.target_region
+        
+        # Plot initial lattice and target regions
+        center_visualizer = center_simulator.visualizer
+        corner_visualizer = corner_simulator.visualizer
+        
+        center_visualizer.plot_lattice(
+            initial_lattice,
+            title="Initial Lattice with Center Target",
+            highlight_region=center_target,
+            ax=axes[0, 0]
+        )
+        
+        corner_visualizer.plot_lattice(
+            initial_lattice,
+            title="Initial Lattice with Corner Target",
+            highlight_region=corner_target,
+            ax=axes[0, 1]
+        )
+        
+        # Plot final lattices
+        center_final = results["center"]["final_lattice"]
+        corner_final = results["corner"]["final_lattice"]
+        
+        center_visualizer.plot_lattice(
+            center_final,
+            title=f"Center Strategy Result (Fill: {center_fill:.1%})",
+            highlight_region=center_target,
+            ax=axes[1, 0]
+        )
+        
+        corner_visualizer.plot_lattice(
+            corner_final,
+            title=f"Corner Strategy Result (Fill: {corner_fill:.1%})",
+            highlight_region=corner_target,
+            ax=axes[1, 1]
+        )
+        
+        plt.tight_layout()
+        if save_figures:
+            plt.savefig(f"{output_dir}/strategy_comparison.png", dpi=300, bbox_inches='tight')
+        
+        # Display all figures if requested
+        if show_visualization:
+            plt.show()
+    
+    # Run the detailed movement efficiency analysis
+    efficiency_analysis = analyze_movement_efficiency(results)
+    results["efficiency_analysis"] = efficiency_analysis
+    
+    # Add a visualization of phase-by-phase movement progress
+    if show_visualization or save_figures:
+        # Create phase-by-phase movement analysis plot
+        fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+        
+        # Extract movement phase data
+        center_phases = []
+        center_times = []
+        center_atoms = []
+        running_time = 0
+        running_atoms = 0
+        
+        for move in center_simulator.movement_history:
+            move_type = move.get('type', 'unknown')
+            atoms_moved = len(move.get('moves', []))
+            time_taken = move.get('time', 0)
+            
+            running_time += time_taken
+            running_atoms += atoms_moved
+            
+            center_phases.append(move_type)
+            center_times.append(running_time * 1000)  # Convert to ms
+            center_atoms.append(running_atoms)
+        
+        corner_phases = []
+        corner_times = []
+        corner_atoms = []
+        running_time = 0
+        running_atoms = 0
+        
+        for move in corner_simulator.movement_history:
+            move_type = move.get('type', 'unknown')
+            atoms_moved = len(move.get('moves', []))
+            time_taken = move.get('time', 0)
+            
+            running_time += time_taken
+            running_atoms += atoms_moved
+            
+            corner_phases.append(move_type)
+            corner_times.append(running_time * 1000)  # Convert to ms
+            corner_atoms.append(running_atoms)
+        
+        # Plot cumulative movement time
+        axes[0].plot(center_atoms, center_times, 'o-', label='Center Strategy')
+        axes[0].plot(corner_atoms, corner_times, 's-', label='Corner Strategy')
+        axes[0].set_xlabel('Cumulative Atoms Moved')
+        axes[0].set_ylabel('Cumulative Movement Time (ms)')
+        axes[0].set_title('Movement Efficiency Comparison')
+        axes[0].grid(True)
+        axes[0].legend()
+        
+        # Plot phase durations
+        if center_simulator.movement_history and corner_simulator.movement_history:
+            # Get unique movement types
+            all_types = set()
+            for move in center_simulator.movement_history + corner_simulator.movement_history:
+                all_types.add(move.get('type', 'unknown'))
+            
+            # Calculate time spent in each phase
+            center_phase_times = {phase: 0 for phase in all_types}
+            corner_phase_times = {phase: 0 for phase in all_types}
+            
+            for move in center_simulator.movement_history:
+                move_type = move.get('type', 'unknown')
+                center_phase_times[move_type] += move.get('time', 0) * 1000  # Convert to ms
+            
+            for move in corner_simulator.movement_history:
+                move_type = move.get('type', 'unknown')
+                corner_phase_times[move_type] += move.get('time', 0) * 1000  # Convert to ms
+            
+            # Plot stacked bar chart
+            center_phases = []
+            center_times = []
+            corner_phases = []
+            corner_times = []
+            
+            for phase, time in center_phase_times.items():
+                if time > 0:
+                    center_phases.append(phase)
+                    center_times.append(time)
+            
+            for phase, time in corner_phase_times.items():
+                if time > 0:
+                    corner_phases.append(phase)
+                    corner_times.append(time)
+            
+            # Create indexes for bars
+            x = np.arange(2)
+            width = 0.35
+            
+            # Plot total times as reference
+            axes[1].bar(x, [sum(center_times), sum(corner_times)], width, 
+                     alpha=0.3, label='Total Time')
+            
+            # Plot phase breakdown for center strategy
+            bottom = 0
+            for i, (phase, time) in enumerate(zip(center_phases, center_times)):
+                if i < 5:  # Limit to top 5 phases for readability
+                    axes[1].bar(x[0], time, width, bottom=bottom, alpha=0.7, 
+                             label=f'Center: {phase}' if i == 0 else None)
+                    bottom += time
+            
+            # Plot phase breakdown for corner strategy
+            bottom = 0
+            for i, (phase, time) in enumerate(zip(corner_phases, corner_times)):
+                if i < 5:  # Limit to top 5 phases for readability
+                    axes[1].bar(x[1], time, width, bottom=bottom, alpha=0.7,
+                             label=f'Corner: {phase}' if i == 0 else None)
+                    bottom += time
+            
+            axes[1].set_xticks(x)
+            axes[1].set_xticklabels(['Center', 'Corner'])
+            axes[1].set_ylabel('Movement Time (ms)')
+            axes[1].set_title('Movement Phase Times')
+            axes[1].grid(True, axis='y')
+        
+        plt.tight_layout()
+        if save_figures:
+            plt.savefig(f"{output_dir}/movement_efficiency_analysis.png", dpi=300, bbox_inches='tight')
+    
+    return results
 
-def create_summary_plots(df, save_fig=False):
+
+def compare_atom_loss_impacts(loss_values=[0.0, 0.01, 0.03, 0.05, 0.1], **kwargs):
     """
-    Create summary plots from multi-test results.
+    Compare how different atom loss probabilities affect both strategies.
     
     Args:
-        df: DataFrame with test results
-        save_fig: Whether to save figures to files
+        loss_values: List of atom loss probability values to test
+        **kwargs: Additional arguments to pass to run_comparison
+        
+    Returns:
+        Dictionary with results for each loss value
     """
-    # Create figure for fill rate comparison
-    plt.figure(figsize=(12, 8))
+    loss_results = {}
     
-    # Extract unique sizes and occupations
-    sizes = df['size'].unique()
-    occupations = df['occupation'].unique()
+    # Test each atom loss probability
+    for loss_prob in loss_values:
+        print("\n" + "="*60)
+        print(f"TESTING ATOM LOSS PROBABILITY: {loss_prob:.2%}")
+        print("="*60)
+        
+        # Run comparison with this loss probability
+        results = run_comparison(
+            atom_loss_probability=loss_prob,
+            show_visualization=False,  # Don't show individual visualizations
+            **kwargs
+        )
+        
+        # Save results
+        loss_results[loss_prob] = results
     
-    # Plot fill rate by size for each occupation
-    for occupation in occupations:
-        subset = df[df['occupation'] == occupation]
-        plt.plot(subset['size'], subset['center_fill_rate'], 'o-', 
-                label=f'Center (occ={occupation})')
-        plt.plot(subset['size'], subset['corner_fill_rate'], 's--', 
-                label=f'Corner (occ={occupation})')
+    # Create summary plot
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     
-    plt.xlabel('Lattice Size')
-    plt.ylabel('Fill Rate')
-    plt.title('Fill Rate Comparison by Size and Occupation')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
+    # Data for plotting
+    loss_probs = list(loss_results.keys())
+    center_fill_rates = [loss_results[p]["center"]["fill_rate"] for p in loss_probs]
+    corner_fill_rates = [loss_results[p]["corner"]["fill_rate"] for p in loss_probs]
     
-    if save_fig:
-        plt.savefig("fill_rate_comparison.png", bbox_inches='tight', dpi=300)
+    center_times = [loss_results[p]["center"]["physical_time"] for p in loss_probs]
+    corner_times = [loss_results[p]["corner"]["physical_time"] for p in loss_probs]
     
-    # Create figure for execution time comparison
-    plt.figure(figsize=(12, 8))
+    center_moves = [loss_results[p]["center"]["total_atom_moves"] for p in loss_probs]
+    corner_moves = [loss_results[p]["corner"]["total_atom_moves"] for p in loss_probs]
     
-    # Plot execution time by size for each occupation
-    for occupation in occupations:
-        subset = df[df['occupation'] == occupation]
-        plt.plot(subset['size'], subset['center_execution_time'], 'o-', 
-                label=f'Center (occ={occupation})')
-        plt.plot(subset['size'], subset['corner_execution_time'], 's--', 
-                label=f'Corner (occ={occupation})')
+    center_defects = [loss_results[p]["center"]["defects"] for p in loss_probs]
+    corner_defects = [loss_results[p]["corner"]["defects"] for p in loss_probs]
     
-    plt.xlabel('Lattice Size')
-    plt.ylabel('Execution Time (s)')
-    plt.title('Execution Time Comparison by Size and Occupation')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    
-    if save_fig:
-        plt.savefig("execution_time_comparison.png", bbox_inches='tight', dpi=300)
-    
-    # Create figure for physical time comparison
-    plt.figure(figsize=(12, 8))
-    
-    # Plot physical time by size for each occupation
-    for occupation in occupations:
-        subset = df[df['occupation'] == occupation]
-        plt.plot(subset['size'], subset['center_physical_time'], 'o-', 
-                label=f'Center (occ={occupation})')
-        plt.plot(subset['size'], subset['corner_physical_time'], 's--', 
-                label=f'Corner (occ={occupation})')
-    
-    plt.xlabel('Lattice Size')
-    plt.ylabel('Physical Movement Time (s)')
-    plt.title('Physical Movement Time Comparison by Size and Occupation')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    
-    if save_fig:
-        plt.savefig("physical_time_comparison.png", bbox_inches='tight', dpi=300)
-    
-    # Create figure for ratio comparisons
-    fig, axes = plt.subplots(2, 2, figsize=(15, 12))
-    
-    # Plot fill rate difference (corner - center)
-    for occupation in occupations:
-        subset = df[df['occupation'] == occupation]
-        axes[0, 0].plot(subset['size'], subset['fill_rate_diff'], 'o-', 
-                       label=f'Occupation={occupation}')
-    
-    axes[0, 0].axhline(y=0, color='r', linestyle='-', alpha=0.3)
-    axes[0, 0].set_xlabel('Lattice Size')
-    axes[0, 0].set_ylabel('Fill Rate Difference (Corner - Center)')
-    axes[0, 0].set_title('Fill Rate Difference by Size')
+    # Plot fill rates
+    axes[0, 0].plot(loss_probs, center_fill_rates, 'o-', label='Center Strategy')
+    axes[0, 0].plot(loss_probs, corner_fill_rates, 's-', label='Corner Strategy')
+    axes[0, 0].set_xlabel('Atom Loss Probability')
+    axes[0, 0].set_ylabel('Fill Rate')
+    axes[0, 0].set_title('Fill Rate vs Atom Loss Probability')
+    axes[0, 0].grid(True)
     axes[0, 0].legend()
-    axes[0, 0].grid(True, alpha=0.3)
     
-    # Plot execution time ratio (corner / center)
-    for occupation in occupations:
-        subset = df[df['occupation'] == occupation]
-        axes[0, 1].plot(subset['size'], subset['exec_time_ratio'], 'o-', 
-                       label=f'Occupation={occupation}')
-    
-    axes[0, 1].axhline(y=1, color='r', linestyle='-', alpha=0.3)
-    axes[0, 1].set_xlabel('Lattice Size')
-    axes[0, 1].set_ylabel('Execution Time Ratio (Corner / Center)')
-    axes[0, 1].set_title('Execution Time Ratio by Size')
+    # Plot physical times
+    axes[0, 1].plot(loss_probs, center_times, 'o-', label='Center Strategy')
+    axes[0, 1].plot(loss_probs, corner_times, 's-', label='Corner Strategy')
+    axes[0, 1].set_xlabel('Atom Loss Probability')
+    axes[0, 1].set_ylabel('Physical Time (s)')
+    axes[0, 1].set_title('Physical Movement Time vs Atom Loss Probability')
+    axes[0, 1].grid(True)
     axes[0, 1].legend()
-    axes[0, 1].grid(True, alpha=0.3)
     
-    # Plot physical time ratio (corner / center)
-    for occupation in occupations:
-        subset = df[df['occupation'] == occupation]
-        axes[1, 0].plot(subset['size'], subset['phys_time_ratio'], 'o-', 
-                       label=f'Occupation={occupation}')
-    
-    axes[1, 0].axhline(y=1, color='r', linestyle='-', alpha=0.3)
-    axes[1, 0].set_xlabel('Lattice Size')
-    axes[1, 0].set_ylabel('Physical Time Ratio (Corner / Center)')
-    axes[1, 0].set_title('Physical Movement Time Ratio by Size')
+    # Plot atom moves
+    axes[1, 0].plot(loss_probs, center_moves, 'o-', label='Center Strategy')
+    axes[1, 0].plot(loss_probs, corner_moves, 's-', label='Corner Strategy')
+    axes[1, 0].set_xlabel('Atom Loss Probability')
+    axes[1, 0].set_ylabel('Total Atom Moves')
+    axes[1, 0].set_title('Movement Complexity vs Atom Loss Probability')
+    axes[1, 0].grid(True)
     axes[1, 0].legend()
-    axes[1, 0].grid(True, alpha=0.3)
     
-    # Plot movement ratio (corner / center)
-    for occupation in occupations:
-        subset = df[df['occupation'] == occupation]
-        axes[1, 1].plot(subset['size'], subset['movement_ratio'], 'o-', 
-                       label=f'Occupation={occupation}')
-    
-    axes[1, 1].axhline(y=1, color='r', linestyle='-', alpha=0.3)
-    axes[1, 1].set_xlabel('Lattice Size')
-    axes[1, 1].set_ylabel('Movement Count Ratio (Corner / Center)')
-    axes[1, 1].set_title('Movement Count Ratio by Size')
+    # Plot defects
+    axes[1, 1].plot(loss_probs, center_defects, 'o-', label='Center Strategy')
+    axes[1, 1].plot(loss_probs, corner_defects, 's-', label='Corner Strategy')
+    axes[1, 1].set_xlabel('Atom Loss Probability')
+    axes[1, 1].set_ylabel('Remaining Defects')
+    axes[1, 1].set_title('Defects vs Atom Loss Probability')
+    axes[1, 1].grid(True)
     axes[1, 1].legend()
-    axes[1, 1].grid(True, alpha=0.3)
     
     plt.tight_layout()
     
-    if save_fig:
-        plt.savefig("ratio_comparisons.png", bbox_inches='tight', dpi=300)
+    # Save if requested
+    if kwargs.get('save_figures', False):
+        output_dir = kwargs.get('output_dir', 'comparison_results')
+        import os
+        os.makedirs(output_dir, exist_ok=True)
+        plt.savefig(f"{output_dir}/atom_loss_comparison.png", dpi=300, bbox_inches='tight')
     
-    plt.show()
+    # Display
+    if kwargs.get('show_visualization', True):
+        plt.show()
+    
+    return loss_results
+
+def analyze_movement_efficiency(results):
+    """
+    Analyze the movement efficiency of both strategies in detail.
+    
+    Args:
+        results: Dictionary with results from both strategies
+        
+    Returns:
+        Dictionary with detailed analysis metrics
+    """
+    print("\n" + "="*50)
+    print("DETAILED MOVEMENT EFFICIENCY ANALYSIS")
+    print("="*50)
+    
+    # Extract key data
+    center_data = results["center"]
+    corner_data = results["corner"]
+    center_moves = center_data["simulator"].movement_history
+    corner_moves = corner_data["simulator"].movement_history
+    
+    # Initialize analysis dict
+    analysis = {
+        "center": {},
+        "corner": {}
+    }
+    
+    # Analyze movement phases
+    for strategy, moves in [("center", center_moves), ("corner", corner_moves)]:
+        # Count moves by type
+        move_types = {}
+        for move in moves:
+            move_type = move.get('type', 'unknown')
+            if move_type not in move_types:
+                move_types[move_type] = {
+                    'count': 0,
+                    'atoms_moved': 0,
+                    'total_time': 0,
+                    'successful': 0,
+                    'failed': 0
+                }
+            
+            move_types[move_type]['count'] += 1
+            move_types[move_type]['atoms_moved'] += len(move.get('moves', []))
+            move_types[move_type]['total_time'] += move.get('time', 0)
+            move_types[move_type]['successful'] += move.get('successful', 0)
+            move_types[move_type]['failed'] += move.get('failed', 0)
+        
+        # Analyze movement distances
+        total_distance = 0
+        max_distance = 0
+        move_counts = []
+        for move in moves:
+            for atom_move in move.get('moves', []):
+                if isinstance(atom_move, dict) and 'from' in atom_move and 'to' in atom_move:
+                    from_pos = atom_move['from']
+                    to_pos = atom_move['to']
+                    # Manhattan distance
+                    distance = abs(to_pos[0] - from_pos[0]) + abs(to_pos[1] - from_pos[1])
+                    total_distance += distance
+                    max_distance = max(max_distance, distance)
+                    move_counts.append(distance)
+        
+        # Calculate average distance
+        avg_distance = total_distance / sum(len(move.get('moves', [])) for move in moves) if moves else 0
+        
+        # Store analysis
+        analysis[strategy] = {
+            'move_types': move_types,
+            'total_distance': total_distance,
+            'max_distance': max_distance,
+            'avg_distance': avg_distance,
+            'move_counts': move_counts
+        }
+    
+    # Print detailed analysis
+    print("\nMovement Type Analysis:")
+    print("\nCenter Strategy:")
+    for move_type, stats in sorted(analysis["center"]['move_types'].items()):
+        print(f"  {move_type}: {stats['count']} operations, {stats['atoms_moved']} atoms moved, {stats['total_time']*1000:.2f} ms")
+    
+    print("\nCorner Strategy:")
+    for move_type, stats in sorted(analysis["corner"]['move_types'].items()):
+        print(f"  {move_type}: {stats['count']} operations, {stats['atoms_moved']} atoms moved, {stats['total_time']*1000:.2f} ms")
+    
+    print("\nMovement Efficiency Metrics:")
+    print(f"Center - Average move distance: {analysis['center']['avg_distance']:.2f} units")
+    print(f"Corner - Average move distance: {analysis['corner']['avg_distance']:.2f} units")
+    print(f"Center - Maximum move distance: {analysis['center']['max_distance']} units")
+    print(f"Corner - Maximum move distance: {analysis['corner']['max_distance']} units")
+    print(f"Center - Total movement distance: {analysis['center']['total_distance']} units")
+    print(f"Corner - Total movement distance: {analysis['corner']['total_distance']} units")
+    
+    # Additional analysis on target placement
+    center_simulator = results["center"]["simulator"]
+    corner_simulator = results["corner"]["simulator"]
+    
+    center_target = center_simulator.movement_manager.target_region
+    corner_target = corner_simulator.movement_manager.target_region
+    
+    center_start_row, center_start_col, center_end_row, center_end_col = center_target
+    corner_start_row, corner_start_col, corner_end_row, corner_end_col = corner_target
+    
+    # Analyze initial atom distribution within target region
+    initial_lattice = center_simulator.slm_lattice  # Both use the same initial lattice
+    
+    center_target_initial = initial_lattice[center_start_row:center_end_row, center_start_col:center_end_col]
+    corner_target_initial = initial_lattice[corner_start_row:corner_end_row, corner_start_col:corner_end_col]
+    
+    center_initial_fill = np.sum(center_target_initial) / center_target_initial.size
+    corner_initial_fill = np.sum(corner_target_initial) / corner_target_initial.size
+    
+    print("\nTarget Placement Analysis:")
+    print(f"Center target location: ({center_start_row}, {center_start_col}) to ({center_end_row}, {center_end_col})")
+    print(f"Corner target location: ({corner_start_row}, {corner_start_col}) to ({corner_end_row}, {corner_end_col})")
+    print(f"Center initial target fill rate: {center_initial_fill:.2%}")
+    print(f"Corner initial target fill rate: {corner_initial_fill:.2%}")
+    
+    # Compare initial distribution advantages
+    center_advantage = center_initial_fill
+    corner_advantage = corner_initial_fill
+    
+    if center_advantage > corner_advantage:
+        advantage_diff = center_advantage - corner_advantage
+        print(f"\nCenter target had {advantage_diff:.2%} better initial filling - this gives it a head start.")
+    elif corner_advantage > center_advantage:
+        advantage_diff = corner_advantage - center_advantage
+        print(f"\nCorner target had {advantage_diff:.2%} better initial filling - this gives it a head start.")
+    
+    # Plot movement distance distribution
+    if len(analysis['center']['move_counts']) > 0 and len(analysis['corner']['move_counts']) > 0:
+        fig, ax = plt.subplots(figsize=(10, 6))
+        
+        bins = np.arange(0, max(max(analysis['center']['move_counts']), 
+                              max(analysis['corner']['move_counts'])) + 2)
+        
+        ax.hist(analysis['center']['move_counts'], bins=bins, alpha=0.5, label='Center Strategy', 
+                density=True)
+        ax.hist(analysis['corner']['move_counts'], bins=bins, alpha=0.5, label='Corner Strategy', 
+                density=True)
+        
+        ax.set_xlabel('Movement Distance (Manhattan)')
+        ax.set_ylabel('Density')
+        ax.set_title('Distribution of Atom Movement Distances')
+        ax.legend()
+        ax.grid(True)
+        
+        plt.tight_layout()
+        print("\nCreated movement distance distribution plot.")
+    
+    return analysis
+
 
 def main():
     """Main function to run the comparison."""
-    parser = argparse.ArgumentParser(description='Compare center and corner filling strategies')
-    parser.add_argument('--size', type=int, default=30, help='Initial lattice size (default: 30)')
-    parser.add_argument('--occupation', type=float, default=0.7, help='Atom occupation probability (default: 0.7)')
-    parser.add_argument('--seed', type=int, default=42, help='Random seed (default: 42)')
-    parser.add_argument('--multi', action='store_true', help='Run multiple tests with different parameters')
-    parser.add_argument('--save', action='store_true', help='Save visualizations and results')
-    parser.add_argument('--no-viz', action='store_true', help='Disable visualizations')
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Compare corner and center atom rearrangement strategies')
+    parser.add_argument('--size', type=int, nargs=2, default=[100, 100], help='Initial lattice size (rows cols)')
+    parser.add_argument('--occupation', type=float, default=0.7, help='Atom occupation probability (0.0-1.0)')
+    parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
+    parser.add_argument('--loss', type=float, default=0.0, help='Atom loss probability during movement')
+    parser.add_argument('--no-visual', action='store_true', help='Disable visualizations')
+    parser.add_argument('--save', action='store_true', help='Save figures to files')
+    parser.add_argument('--output-dir', type=str, default='comparison_results', help='Directory for output files')
+    parser.add_argument('--loss-sweep', action='store_true', help='Run comparison across multiple loss probabilities')
+    parser.add_argument('--loss-values', type=float, nargs='+', default=[0.0, 0.01, 0.03, 0.05, 0.1], 
+                        help='Loss probability values to test in sweep')
+    
     args = parser.parse_args()
     
-    if args.multi:
-        run_multi_test(
-            sizes=[(20, 20), (40, 40), (60, 60)],
-            occupations=[0.5, 0.7, 0.9],
-            save_results=args.save,
-            show_visualization=not args.no_viz
+    # Run comparison or loss sweep
+    if args.loss_sweep:
+        compare_atom_loss_impacts(
+            loss_values=args.loss_values,
+            initial_size=tuple(args.size),
+            occupation_prob=args.occupation,
+            seed=args.seed,
+            show_visualization=not args.no_visual,
+            save_figures=args.save,
+            output_dir=args.output_dir
         )
     else:
         run_comparison(
-            size=(args.size, args.size),
+            initial_size=tuple(args.size),
             occupation_prob=args.occupation,
-            random_seed=args.seed,
-            show_visualization=not args.no_viz,
-            save_visualization=args.save
+            seed=args.seed,
+            atom_loss_probability=args.loss,
+            show_visualization=not args.no_visual,
+            save_figures=args.save,
+            output_dir=args.output_dir
         )
+
 
 if __name__ == "__main__":
     main()

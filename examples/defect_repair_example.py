@@ -13,7 +13,7 @@ def main():
     
     # Create simulator with initial 20x20 lattice and 50% occupation probability
     # Using a lower occupation probability to ensure we have defects to repair
-    simulator = LatticeSimulator(initial_size=(20, 20), occupation_prob=0.5)
+    simulator = LatticeSimulator(initial_size=(100, 100), occupation_prob=0.5)
     simulator.generate_initial_lattice()
     
     # Calculate the optimal target zone size based on available atoms

@@ -9,10 +9,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 from defect_free import LatticeSimulator, LatticeVisualizer
 
-def run_comparison(initial_size=(50, 50), 
+def run_comparison(initial_size=(100, 100), 
                   occupation_prob=0.7, 
                   seed=42, 
-                  atom_loss_probability=0.1,
+                  atom_loss_probability=0.0,
                   show_visualization=True,
                   save_figures=False,
                   output_dir="comparison_results"):

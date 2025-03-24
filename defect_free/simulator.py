@@ -94,32 +94,73 @@ class LatticeSimulator:
         self.total_atoms = np.sum(self.field)
         
         return self.field
-        
-    def calculate_max_defect_free_size(self) -> int:
+
+    def calculate_max_defect_free_size(self, strategy=None) -> int:
         """
-        Calculate the maximum possible size of a defect-free square lattice based on available atoms.
-        Uses ALL available atoms with no utilization factor.
+        Calculate the maximum possible size of a defect-free square lattice based on available atoms,
+        with scaling of expected movements based on lattice size.
+        
+        Args:
+            strategy: Which strategy to use for calculation ('center' or 'corner')
         
         Returns:
             The side length of the maximum possible square lattice
         """
         # Count total atoms in the field
         total_atoms = np.sum(self.field)
-
-
-        expected_steps = 3  # Expected steps by one atom
         
-        # Calculate the largest possible square that can be formed with available atoms
-        # For example: 15 atoms → 3×3 square (9 atoms used)
-        #              17 atoms → 4×4 square (16 atoms used)
+        # Get lattice dimensions
+        field_height, field_width = self.initial_size
+        lattice_size = max(field_height, field_width)
+        
+        # Base parameters for reference lattice sizes
+        base_lattice_size = 30  # Reference size for scaling
+        
+        # Base movement counts at the reference lattice size
+        if strategy == 'corner':
+            base_steps = 2.0  # Base steps for corner strategy
+        else:
+            base_steps = 1.5  # Base steps for center strategy
+        
+        # Scale expected steps based on lattice size using square root scaling
+        # This models the intuition that in larger lattices, atoms need to move farther
+        scaling_factor = np.sqrt(lattice_size / base_lattice_size)
+        
+        # Calculate expected steps with scaling
+        expected_steps = base_steps * scaling_factor
+        
+        # Add a minimum floor for very small lattices
+        expected_steps = max(expected_steps, 1.0)
+        
+        # Calculate atom loss probability
         atom_loss_prob = self.constraints.get('atom_loss_probability', 0.0)
-        max_square_size = int(np.floor(np.sqrt(total_atoms * ((1 - atom_loss_prob)**expected_steps))))  # Adjust for atom loss probability
+        
+        # Transport success rate (accounting for scaled number of moves)
+        transport_success_rate = (1 - atom_loss_prob) ** expected_steps
+        
+        # Safety factor based on strategy 
+        if strategy == 'corner':
+            safety_factor = 0.95  # 5% safety margin for corner strategy
+        else:
+            safety_factor = 0.97  # 3% safety margin for center strategy
+        
+        # Final calculation with all scaling factors
+        max_square_size = int(np.floor(np.sqrt(total_atoms * transport_success_rate * safety_factor)))
+        
+        # Print diagnostic information
+        print(f"Lattice dimensions: {field_height}x{field_width}")
+        print(f"Scaling factor: {scaling_factor:.2f}")
+        print(f"Expected steps per atom: {expected_steps:.2f}")
+        print(f"Transport success rate: {transport_success_rate:.4f}")
+        print(f"Safety factor: {safety_factor}")
         
         # Update the side_length attribute
         self.side_length = max_square_size
         
         return max_square_size
-    
+
+    # Replace the existing rearrange_for_defect_free method in LatticeSimulator with this one
+
     def rearrange_for_defect_free(self, strategy='center', show_visualization=True) -> Tuple[np.ndarray, float, float]:
         """
         Rearrange atoms to create a defect-free region using the specified strategy.
@@ -143,16 +184,17 @@ class LatticeSimulator:
         self.movement_time = 0.0
         
         print("Step 1: Determining optimal target region size...")
-        # Use the predefined method to calculate maximum square size
-        max_square_size = self.calculate_max_defect_free_size()
+        # Use the optimal target size calculation
+        self.side_length = self.calculate_max_defect_free_size(strategy=strategy)
         total_atoms = np.sum(self.field)
         
         # Calculate atom loss probability
         atom_loss_prob = self.constraints.get('atom_loss_probability', 0.0)
         
-        print(f"Step 2: Calculated maximum defect-free square: {self.side_length}x{self.side_length}")
+        print(f"Step 2: Calculated optimal defect-free square: {self.side_length}x{self.side_length}")
         print(f"Creating defect-free region of size {self.side_length}x{self.side_length}")
         print(f"Using {self.side_length * self.side_length} atoms out of {total_atoms} available")
+        print(f"Utilization ratio: {(self.side_length * self.side_length) / total_atoms:.2%}")
         
         if atom_loss_prob > 0:
             print(f"(Accounting for {atom_loss_prob:.1%} atom loss probability per move)")

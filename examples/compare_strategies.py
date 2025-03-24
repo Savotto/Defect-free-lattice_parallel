@@ -151,12 +151,6 @@ def run_comparison(initial_size=(100, 100),
             if save_figures:
                 fig_analysis.savefig(f"{output_dir}/{strategy}_final_analysis.png", dpi=300, bbox_inches='tight')
             
-            # Show movement opportunities (helps diagnose why some defects couldn't be filled)
-            if defects > 0:
-                fig_opportunities = visualizer.visualize_movement_opportunities()
-                if save_figures:
-                    fig_opportunities.savefig(f"{output_dir}/{strategy}_movement_opportunities.png", dpi=300, bbox_inches='tight')
-            
             # Don't display figures yet if we're comparing both strategies
             if not show_visualization:
                 plt.close('all')
@@ -564,10 +558,10 @@ def analyze_movement_efficiency(results):
 def main():
     """Main function to run the comparison with default parameters."""
     run_comparison(
-        initial_size=(100, 100),
+        initial_size=(80, 80),
         occupation_prob=0.7,
         seed=42,
-        atom_loss_probability=0.1,
+        atom_loss_probability=0.05,
         show_visualization=True,
         save_figures=False,
         output_dir="comparison_results"

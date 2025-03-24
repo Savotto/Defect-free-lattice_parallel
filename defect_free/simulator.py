@@ -14,7 +14,7 @@ class LatticeSimulator:
     SITE_DISTANCE = 5.0  # μm
     MAX_ACCELERATION = 2750.0  # m/s²
     TRAP_TRANSFER_TIME = 15e-6  # seconds (15μs)
-    ATOM_LOSS_PROBABILITY = 0.1 # Based on experimental data
+    ATOM_LOSS_PROBABILITY = 0.05 # Based on experimental data
     MAX_VELOCITY = 0.3  # m/s
     SETTLING_TIME = 1e-6  # seconds
     
@@ -105,12 +105,15 @@ class LatticeSimulator:
         """
         # Count total atoms in the field
         total_atoms = np.sum(self.field)
+
+
+        expected_steps = 3  # Expected steps by one atom
         
         # Calculate the largest possible square that can be formed with available atoms
         # For example: 15 atoms → 3×3 square (9 atoms used)
         #              17 atoms → 4×4 square (16 atoms used)
         atom_loss_prob = self.constraints.get('atom_loss_probability', 0.0)
-        max_square_size = int(np.floor(np.sqrt(total_atoms * ((1 - atom_loss_prob)**3)))) # Assuming max 3 moves per atom
+        max_square_size = int(np.floor(np.sqrt(total_atoms * ((1 - atom_loss_prob)**expected_steps))))  # Adjust for atom loss probability
         
         # Update the side_length attribute
         self.side_length = max_square_size

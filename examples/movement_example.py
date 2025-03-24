@@ -18,7 +18,7 @@ def main():
     np.random.seed(42)
     
     # Configuration parameters - modify these as needed
-    lattice_size = (50, 50)
+    lattice_size = (40, 40)
     occupation_prob = 0.7
     
     # Step 1: Initialize the lattice
@@ -59,10 +59,10 @@ def main():
     # - center_filling_strategy() for center filling
     # - corner_filling_strategy() for corner filling
     print("\nApplying filling strategy...")
-    final_lattice, fill_rate, execution_time = simulator.movement_manager.center_filling_strategy(show_visualization=True)
+    final_lattice, fill_rate, execution_time = simulator.movement_manager.corner_filling_strategy(show_visualization=True)
     
     # Name of the current strategy for display purposes
-    strategy_name = "Corner"  # Change this if you change the strategy above
+    strategy_name = "Center"  # Change this if you change the strategy above
     
     # Store the final state
     after_filling_lattice = simulator.field.copy()

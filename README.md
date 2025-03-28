@@ -6,15 +6,16 @@ A Python package for simulating atom rearrangement in optical lattices using SLM
 
 - **Physical Constraints Modeling**: Implements realistic atom movement physics including max acceleration, velocity limits, trap transfer time, and atom loss probability
 - **Multiple Movement Strategies**: 
-  - Center-based strategy (places target zone in the center)
-  - Corner-based strategy (places target zone in the top-left corner)
+  - Center-based strategy (places target zone in the center) 
+  - Corner-based strategy (places target zone in the top-left corner) 
+  However, corner-based is computationally faster.
 - **Advanced Algorithms**:
   - Row-wise and column-wise atom alignment
   - Sophisticated defect repair with path optimization
   - Block-based corner atom movement
   - A* pathfinding for complex moves
-- **Performance Analysis**: Tools to compare strategies and quantify execution metrics
-- **Rich Visualization**: Animated atom movements, heatmaps, and motion analysis
+- **Performance Analysis**: Tools to quantify execution metrics (to be implemented)
+- **Rich Visualization**: Animated atom movements and more
 - **Transport Loss Modeling**: Probabilistic atom loss simulation during transport
 
 ## Project Structure
@@ -31,8 +32,7 @@ defect-free/
 │   └── visualizer.py           # Visualization tools
 ├── examples/                   # Example scripts
 │   ├── complete_workflow_example.py
-│   ├── movement_example.py
-│   ├── compare_strategies.py
+│   ├── movement_example.py     
 │   └── performance_analysis.py
 ├── .gitignore                  # Ignore generated files
 └── README.md                   # This file
@@ -44,9 +44,9 @@ The simulator models physical constraints of optical lattice manipulations:
 
 - **Site Distance**: 5.0 μm (configurable)
 - **Maximum Acceleration**: 2750.0 m/s² (configurable)
-- **Maximum Velocity**: 0.3 m/s (configurable)
+- **Maximum Velocity**: 0.1 m/s (configurable)
 - **Settling Time**: 1 μs (configurable)
-- **Atom Loss Probability**: Configurable, default 0.0
+- **Atom Loss Probability**: Configurable, default 0.05
 
 Movement timing calculations use a realistic trapezoidal velocity profile that respects both maximum acceleration and velocity limits.
 
@@ -68,34 +68,12 @@ Movement timing calculations use a realistic trapezoidal velocity profile that r
 
 Both strategies implement sophisticated defect repair algorithms that use optimal path finding to move atoms to remaining defect positions.
 
-## Usage
-
-
-### Comparing Strategies
-
-For a detailed comparison of center and corner strategies:
-
-```python
-from defect_free.examples.compare_strategies import run_comparison
-
-# Compare the two strategies with the same initial conditions
-results = run_comparison(
-    initial_size=(100, 100),
-    occupation_prob=0.7,
-    seed=42,
-    atom_loss_probability=0.05,
-    show_visualization=True,
-    save_figures=True
-)
-```
-
 ### Script Examples
 
 Several example scripts are included in the `examples/` directory:
 
-- `complete_workflow_example.py`: Simple end-to-end example
+- `complete_workflow_example.py`: Simple end-to-end example. Can be used with both center and corner strategies.
 - `movement_example.py`: Demonstrates movements. Can be run using both center and corner startegies.
-- `compare_strategies.py`: Detailed comparison of center vs corner strategies
 - `performance_analysis.py`: Performance testing across different parameters
 
 ## Algorithm Details
@@ -114,7 +92,7 @@ The algorithm uses a multi-tiered pathfinding approach for optimal atom movement
 
 ### Movement Optimization
 
-For parallel operations, atoms are grouped into batches that can be moved simultaneously without collisions. This drastically reduces the physical execution time required.
+For parallel operations, atoms are grouped into batches that can be moved simultaneously without collisions. This reduces the physical execution time required.
 
 ## Visualization
 
@@ -123,12 +101,11 @@ The package includes a rich visualization toolkit:
 - **Lattice State Visualization**: View the atom arrangement at any point
 - **Movement Animation**: Animate the sequence of atom movements
 - **Movement Analysis**: Analyze movement patterns and efficiency
-- **Path Visualization**: Examine potential movement opportunities
 
 ## Performance Considerations
 
 - **Execution Speed**: The center strategy typically requires more computation time but can achieve better fill rates in some scenarios
-- **Physical Movement Time**: The corner strategy often requires fewer physical atom movements, resulting in faster experimental execution
+- **Physical Movement Time**: The corner strategy is having less complex path finding in the final filling and thus is faster in computation.
 - **Atom Loss**: Both strategies are designed to be robust to atom loss during transport
 
 ## Dependencies
@@ -139,9 +116,8 @@ The package includes a rich visualization toolkit:
 
 ## Future Improvements
 
-- Implement better 
+- Center strategy could benefit from first iterating the row squeezing some times and after that iteratively squeeze columns.
 - Add support for arbitrary target shapes beyond square lattices
-- Extend the physical model to include additional experimental constraints
 
 
 

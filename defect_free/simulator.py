@@ -14,8 +14,8 @@ class LatticeSimulator:
     SITE_DISTANCE = 5.0  # μm
     MAX_ACCELERATION = 2750.0  # m/s²
     TRAP_TRANSFER_TIME = 15e-6  # seconds (15μs)
-    ATOM_LOSS_PROBABILITY = 0.05 # Based on experimental data
-    MAX_VELOCITY = 0.3  # m/s
+    ATOM_LOSS_PROBABILITY = 0.05 # Probability of atom loss per move
+    MAX_VELOCITY = 0.1  # m/s
     SETTLING_TIME = 1e-6  # seconds
     
     def __init__(self, 
@@ -158,8 +158,6 @@ class LatticeSimulator:
         self.side_length = max_square_size
         
         return max_square_size
-
-    # Replace the existing rearrange_for_defect_free method in LatticeSimulator with this one
 
     def rearrange_for_defect_free(self, strategy='center', show_visualization=True) -> Tuple[np.ndarray, float, float]:
         """

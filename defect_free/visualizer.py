@@ -27,12 +27,7 @@ class LatticeVisualizer:
             'grid': '#CCCCCC',            # Lighter gray for grid
             'atom': '#3366CC',            # Blue for atoms
             'target': '#FFD700',          # Gold for target region
-            'defect': '#FF6347'           # Tomato for defects
         }
-        
-        # Create a custom colormap for atom density
-        self.atom_cmap = LinearSegmentedColormap.from_list(
-            'atom_density', ['white', self.colors['atom']], N=100)
         
         # Animation settings
         self.interval = 200  # ms between frames
@@ -234,7 +229,7 @@ class LatticeVisualizer:
             initial_atoms = np.sum(self.simulator.slm_lattice)
             target_atoms = np.sum(target)
             target_size = target.shape[0] * target.shape[1]
-            retention = target_atoms / target_size if target_size > 0 else 0
+            fill_rate = target_atoms / target_size if target_size > 0 else 0
             
             if total_moves == 0:
                 average_time_per_move = 0
@@ -248,7 +243,7 @@ class LatticeVisualizer:
                 f"Initial atoms: {initial_atoms}\n"
                 f"Target region size: {target_size} sites\n"
                 f"Atoms in target: {target_atoms}\n"
-                f"Retention rate: {retention:.2%}\n\n"
+                f"Fill rate: {fill_rate:.2%}\n\n"
                 f"Total operations: {total_moves}\n"
                 f"Total atoms moved: {total_atoms_moved}\n"
                 f"Total movement time: {total_time*1000:.2f} ms\n"
@@ -287,96 +282,3 @@ class LatticeVisualizer:
         print(f"Saving animation to {filename}...")
         self.ani.save(filename, writer=writer)
         print("Animation saved successfully!")
-
-    def visualize_movement_opportunities(self, highlight_unreachable: bool = True):
-        """
-        Visualize potential movement opportunities and unreachable defects.
-        
-        This helps diagnose issues with the movement algorithm, particularly
-        when atoms aren't moving to seemingly available spots.
-        
-        Args:
-            highlight_unreachable: Whether to highlight unreachable defects
-            
-        Returns:
-            Matplotlib figure
-        """
-        if self.simulator.movement_manager.target_region is None:
-            print("Target region not defined.")
-            return None
-            
-        fig, ax = plt.subplots(figsize=(12, 12))
-        
-        # Plot current lattice state
-        self.plot_lattice(self.simulator.target_lattice, 
-                         title="Movement Opportunity Analysis", 
-                         highlight_region=self.simulator.movement_manager.target_region,
-                         ax=ax)
-        
-        # Extract target region
-        start_row, start_col, end_row, end_col = self.simulator.movement_manager.target_region
-        target_area = self.simulator.target_lattice[start_row:end_row, start_col:end_col]
-        
-        # Find defects (empty spots) in the target region
-        defect_positions = np.where(target_area == 0)
-        defect_positions = [(start_row + r, start_col + c) for r, c in zip(defect_positions[0], defect_positions[1])]
-        
-        # Find atoms outside target region that could be moved
-        lattice = self.simulator.target_lattice.copy()
-        # Create a mask for the target region
-        mask = np.zeros_like(lattice, dtype=bool)
-        mask[start_row:end_row, start_col:end_col] = True
-        
-        # Find atoms outside target region
-        outside_atoms = np.where((lattice == 1) & (~mask))
-        outside_atoms = [(r, c) for r, c in zip(outside_atoms[0], outside_atoms[1])]
-        
-        # For each outside atom, find the closest defect and check if it's reachable
-        for atom_r, atom_c in outside_atoms:
-            # Find the closest defect
-            distances = [(defect_r, defect_c, abs(defect_r - atom_r) + abs(defect_c - atom_c)) 
-                        for defect_r, defect_c in defect_positions]
-            if not distances:
-                continue
-                
-            # Sort by distance
-            distances.sort(key=lambda x: x[2])
-            closest_defect = distances[0]
-            defect_r, defect_c, dist = closest_defect
-            
-            # Determine if movement is possible (simplified check - just checking if same row or column)
-            reachable = (atom_r == defect_r) or (atom_c == defect_c)
-            
-            # Draw a line from atom to closest defect
-            line_color = 'green' if reachable else 'red'
-            line_style = '-' if reachable else ':'
-            ax.plot([atom_c, defect_c], [atom_r, defect_r], 
-                   color=line_color, linestyle=line_style, alpha=0.6, linewidth=1.5,
-                   marker='', zorder=3)
-            
-            # Highlight the defect
-            if highlight_unreachable and not reachable:
-                defect_circle = plt.Circle((defect_c, defect_r), 0.3,
-                                         facecolor='none', edgecolor='red',
-                                         linewidth=2, linestyle='--')
-                ax.add_patch(defect_circle)
-        
-        # Add legend
-        from matplotlib.lines import Line2D
-        legend_elements = [
-            Line2D([0], [0], color='green', lw=1.5, label='Reachable path'),
-            Line2D([0], [0], color='red', lw=1.5, linestyle=':', label='Unreachable path')
-        ]
-        ax.legend(handles=legend_elements, loc='upper right')
-        
-        # Add information text
-        info_text = (
-            f"Target region defects: {len(defect_positions)}\n"
-            f"Atoms outside target: {len(outside_atoms)}"
-        )
-        ax.text(0.02, 0.02, info_text,
-               transform=ax.transAxes, fontsize=10,
-               bbox=dict(facecolor='white', alpha=0.7))
-        
-        plt.tight_layout()
-        return fig

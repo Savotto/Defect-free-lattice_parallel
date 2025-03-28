@@ -17,30 +17,6 @@ class BaseMovementManager:
         self.simulator = simulator
         self.target_region = None
         self._movement_time_cache = {}  # Cache for movement time calculations
-    
-    def calculate_movement_time(self, distance: float) -> float:
-        """Calculate movement time based on distance and acceleration constraints with caching."""
-        # Check cache first
-        if distance in self._movement_time_cache:
-            return self._movement_time_cache[distance]
-            
-        # t = 2 * sqrt(d/a) using constant acceleration model
-        max_acceleration = self.simulator.constraints['max_acceleration']
-        site_distance = self.simulator.constraints['site_distance']
-        
-        # Convert distance from lattice units to micrometers
-        distance_um = distance * site_distance
-        
-        # Convert acceleration from m/s² to μm/s²
-        acceleration_um = max_acceleration * 1e6
-        
-        # Calculate time in seconds: t = 2 * sqrt(d/a)
-        time_value = 2 * np.sqrt(distance_um / acceleration_um)
-        
-        # Cache the result
-        self._movement_time_cache[distance] = time_value
-        
-        return time_value
 
     def calculate_realistic_movement_time(self, distance: float) -> float:
         """Calculate movement time with a trapezoidal velocity profile, respecting quantum speed limits."""
@@ -57,7 +33,6 @@ class BaseMovementManager:
         
         # Convert distance from lattice units to meters
         distance_m = distance * site_distance * 1e-6
-        distance_um = distance * site_distance
         
         # Acceleration distance
         accel_distance = (max_velocity**2) / (2 * max_acceleration)
@@ -76,12 +51,9 @@ class BaseMovementManager:
         # Add settling time
         kinematic_time += settling_time
         
-        # Apply quantum speed limit - cannot move faster than quantum mechanics allows
-        total_time = kinematic_time
-        
         # Cache and return result
-        self._movement_time_cache[cache_key] = total_time
-        return total_time
+        self._movement_time_cache[cache_key] = kinematic_time
+        return kinematic_time
 
     def apply_transport_efficiency(self, moves, working_field):
         """
@@ -108,7 +80,7 @@ class BaseMovementManager:
             from_pos = move['from']
             to_pos = move['to']
             
-            # Check if the atom is still at the from_position (should be, but verify)
+            # Check if the atom is still at the from_position
             if updated_field[from_pos] == 0:
                 continue
                 
@@ -170,10 +142,10 @@ class BaseMovementManager:
         start_row, start_col = start_pos
         end_row, end_col = end_pos
         
-        # Try horizontal then vertical (clockwise L)
+        # Try horizontal then vertical
         intermediate_pos1 = (start_row, end_col)
-        if intermediate_pos1 != start_pos and intermediate_pos1 != end_pos and (
-                field[intermediate_pos1] == 0 or intermediate_pos1 == end_pos):
+        if (intermediate_pos1 != start_pos and intermediate_pos1 != end_pos and 
+            field[intermediate_pos1] == 0):
             # Check horizontal path segment
             h_path_clear = True
             start_c = min(start_col, end_col) + 1
@@ -195,10 +167,10 @@ class BaseMovementManager:
             if h_path_clear and v_path_clear:
                 return [start_pos, intermediate_pos1, end_pos]
         
-        # Try vertical then horizontal (counter-clockwise L)
+        # Try vertical then horizontal 
         intermediate_pos2 = (end_row, start_col)
-        if intermediate_pos2 != start_pos and intermediate_pos2 != end_pos and (
-                field[intermediate_pos2] == 0 or intermediate_pos2 == end_pos):
+        if (intermediate_pos2 != start_pos and intermediate_pos2 != end_pos and
+            field[intermediate_pos2] == 0):
             # Check vertical path segment
             v_path_clear = True
             start_r = min(start_row, end_row) + 1
@@ -235,7 +207,6 @@ class BaseMovementManager:
         Returns:
             List of positions forming the path, or None if no path found
         """
-        start_row, start_col = start_pos
         end_row, end_col = end_pos
         
         # Define heuristic (Manhattan distance)
@@ -382,7 +353,7 @@ class BaseMovementManager:
         a_star_path = self.find_a_star_path(field, start_pos, end_pos)
         return self.compress_path(a_star_path)
 
-    # This method will be implemented by child classes
+    
     def repair_defects(self, show_visualization=True):
         """
         Moves atoms from outside the target zone to fill defects within the target zone.
@@ -609,7 +580,7 @@ class BaseMovementManager:
         
         fill_rate = 1.0 - (remaining_defects / target_size)
         
-        print(f"Defect repair complete: {defects_fixed} defects filled. Fill rate: {fill_rate:.2f}")
+        print(f"Defect repair complete: {defects_fixed} defects filled.")
         
         self.simulator.target_lattice = self.simulator.field.copy()
         

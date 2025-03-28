@@ -21,7 +21,7 @@ simulator.visualizer = visualizer
 print("Starting rearrangement...")
 start_time = time.time()
 result, execution_time = simulator.rearrange_for_defect_free(
-    strategy='corner',
+    strategy='corner',  # Change to 'center' for center filling
     show_visualization=False
 )
 final_lattice, fill_rate, _ = result 
@@ -31,13 +31,10 @@ total_time = time.time() - start_time
 print(f"\nResults:")
 print(f"Created defect-free region of size {simulator.side_length}x{simulator.side_length}")
 print(f"Fill rate: {fill_rate:.2%}") 
-print(f"Total running time: {total_time:.3f} seconds")
 print(f"Algorithm execution time: {execution_time:.3f} seconds")
 print(f"Total movements: {len(simulator.movement_history)}")
 
 # Calculate physical time from movement history
 physical_time = sum(move.get('time', 0) for move in simulator.movement_history)
 print(f"Physical movement time: {physical_time:.6f} seconds")
-
-if __name__ == "__main__":
-    pass  # The code already runs at module level, but this is a good practice
+print(f"Total time: {physical_time + execution_time:.3f} seconds")

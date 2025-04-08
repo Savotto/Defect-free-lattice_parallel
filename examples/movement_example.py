@@ -18,8 +18,8 @@ def main():
     np.random.seed(42)
     
     # Configuration parameters - modify these as needed
-    lattice_size = (40, 40)
-    occupation_prob = 0.7
+    lattice_size = (100, 100)
+    occupation_prob = 0.25
     
     # Step 1: Initialize the lattice
     simulator = LatticeSimulator(initial_size=lattice_size, occupation_prob=occupation_prob)
@@ -62,7 +62,7 @@ def main():
     final_lattice, fill_rate, execution_time = simulator.movement_manager.corner_filling_strategy(show_visualization=True)
     
     # Name of the current strategy for display purposes
-    strategy_name = "Center"  # Change this if you change the strategy above
+    strategy_name = "Corner"  # Change this if you change the strategy above
     
     # Store the final state
     after_filling_lattice = simulator.field.copy()
@@ -123,6 +123,13 @@ def main():
     fig_analysis = visualizer.show_final_analysis()
     
     plt.show()
+
+    # Create the animation
+    print("\nCreating animation of movements...")
+    #animation = visualizer.animate_movements(simulator.movement_history)
+
+    # Save the animation as a GIF
+    #visualizer.save_animation("movement_animation_center20x20.gif", fps=10)
 
 if __name__ == "__main__":
     main()

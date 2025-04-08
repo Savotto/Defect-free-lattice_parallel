@@ -3,7 +3,6 @@ Base movement module containing common functionality for both movement strategie
 """
 import numpy as np
 import time
-from typing import Tuple, List, Dict, Optional, Set, Any
 import heapq
 
 class BaseMovementManager:

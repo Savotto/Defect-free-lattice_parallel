@@ -148,7 +148,7 @@ class CornerMovementManager(BaseMovementManager):
     def move_lower_right_corner(self, target_end_row, target_end_col):
         """
         Move the lower-right corner block leftward.
-        Only moves the block if ALL atoms in the block can be moved safely.
+        If the corner block is wider than the target zone, it moves the length of the target zone instead.
         
         Args:
             target_end_row: End row of target zone
@@ -163,6 +163,9 @@ class CornerMovementManager(BaseMovementManager):
         if corner_width <= 0:
             return 0  # No corner block to move
         
+        # Adjust the move length if the corner block is wider than the target zone
+        move_length = min(corner_width, self.simulator.side_length)
+        
         # Find atoms in the lower-right corner region
         corner_atoms = [
             (row, col)
@@ -174,7 +177,7 @@ class CornerMovementManager(BaseMovementManager):
             return 0  # No atoms to move
         
         # Check if all moves are safe
-        offset_col = -corner_width
+        offset_col = -move_length
         for row, col in corner_atoms:
             new_col = col + offset_col
             if new_col < 0 or (self.simulator.field[row, new_col] == 1 and (row, new_col) not in corner_atoms):
@@ -854,6 +857,18 @@ class CornerMovementManager(BaseMovementManager):
                 
                 # Count repair atom moves
                 repair_atom_moves = count_atom_moves(self.simulator.movement_history)
+                
+                # If no atoms were moved, perform rows left and columns up
+                if repair_atom_moves == 0:
+                    print("No atoms moved in repair, performing rows left and columns up...")
+                    
+                    # Squeeze rows to the left
+                    for row in range(target_end_row):
+                        self.squeeze_row_left(row)
+                    
+                    # Squeeze columns upward
+                    for col in range(target_end_col):
+                        self.squeeze_column_up(col)
                 
                 # Add repair movements to total history
                 total_movement_history.extend(self.simulator.movement_history)

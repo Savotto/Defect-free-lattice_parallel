@@ -7,7 +7,7 @@ import numpy as np
 from defect_free import LatticeSimulator, LatticeVisualizer
 
 # Initialize simulator with a 30x30 lattice and 70% occupation probability
-simulator = LatticeSimulator(initial_size=(50, 50), occupation_prob=0.75)
+simulator = LatticeSimulator(initial_size=(100, 100), occupation_prob=0.9)
 
 # Generate initial lattice
 simulator.generate_initial_lattice()
@@ -21,7 +21,7 @@ simulator.visualizer = visualizer
 print("Starting rearrangement...")
 start_time = time.time()
 result, execution_time = simulator.rearrange_for_defect_free(
-    strategy='corner',  # Change to 'center' for center filling
+    strategy='center',  # Change to 'center' for center filling
     show_visualization=False
 )
 final_lattice, fill_rate, _ = result 

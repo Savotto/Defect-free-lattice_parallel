@@ -502,7 +502,18 @@ class BaseMovementManager:
             
             # Create a copy of available_atoms to safely remove atoms during iteration
             atoms_to_consider = available_atoms.copy()
+
+             # Determine if defect is in lower half of target region
+            is_lower_region = defect_row >= center_row
             
+            # Choose search order based on defect location
+            if is_lower_region:
+                # Reverse order for defects in lower region (start from bottom of lattice)
+                atoms_to_consider.sort(key=lambda pos: (-pos[0], -pos[1]))  # Sort by reverse row, reverse col
+            else:
+                # Default order for defects in upper region (start from top of lattice)
+                atoms_to_consider.sort(key=lambda pos: (pos[0], pos[1]))  # Sort by row, col
+                
             for atom_pos in atoms_to_consider:
                 atom_row, atom_col = atom_pos
                 

@@ -228,10 +228,6 @@ class CenterMovementManager(BaseMovementManager):
             
         execution_time = time.time() - start_time
         
-        # Calculate total physical time from movement history
-        physical_time = sum(move['time'] for move in self.simulator.movement_history)
-        print(f"{axis.capitalize()}-wise centering complete in {execution_time:.3f} seconds, physical time: {physical_time:.6f} seconds")
-        
         return self.simulator.target_lattice, execution_time
     
     def row_wise_centering(self, show_visualization=True):
@@ -279,10 +275,6 @@ class CenterMovementManager(BaseMovementManager):
             self.simulator.visualizer.animate_movements(self.simulator.movement_history)
             
         execution_time = time.time() - start_time
-        
-        # Calculate total physical time from movement history
-        physical_time = sum(move['time'] for move in self.simulator.movement_history)
-        print(f"Spread operation complete in {execution_time:.3f} seconds, physical time: {physical_time:.6f} seconds")
         
         return self.simulator.field.copy(), total_moves_made, execution_time
     
@@ -698,16 +690,12 @@ class CenterMovementManager(BaseMovementManager):
             
         execution_time = time.time() - start_time
         
-        # Calculate total physical time from movement history
-        physical_time = sum(move['time'] for move in self.simulator.movement_history)
-        print(f"Corner block movement complete in {execution_time:.3f} seconds, physical time: {physical_time:.6f} seconds")
-        
         return self.simulator.field.copy(), total_moves_made, execution_time
 
     def center_filling_strategy(self, show_visualization=True):
         """
         An optimized comprehensive filling strategy that combines multiple methods:
-        1. Apply row-wise centering and column-wise centering iteratively
+        1. Apply row-wise centering and column-wise centering
         2. Next iteratively:
             a. Spreads atoms outside the target zone outward from center
             b. Applies column-wise centering to utilize the repositioned atoms
@@ -747,104 +735,72 @@ class CenterMovementManager(BaseMovementManager):
         # Continue with algorithm if not already perfect
         if not early_exit:
             # Step 1: Iteratively apply row-wise and column-wise centering until convergence
-            print("\nStep 1: Iterative row-wise and column-wise centering...")
-            
-            max_iterations = 10  # Prevent infinite loops
-            previous_defects = initial_defects
-            iteration = 0
-            
-            while iteration < max_iterations and not early_exit:
-                iteration += 1
-                print(f"\nRow-Column Centering Iteration {iteration}/{max_iterations}...")
-                atoms_moved = 0
-                
-                # Row-wise centering
-                print(f"Step 1.{iteration}: Applying row-wise centering...")
-                row_start_time = time.time()
-                
-                self.simulator.movement_history = []
-                
-                self.row_wise_centering(
-                    show_visualization=False  # Don't show animation yet
-                )
-                
-                # Save movement history
-                total_movement_history.extend(self.simulator.movement_history)
-                row_moves_made = len(self.simulator.movement_history)
-                
-                # Calculate total physical time from movement history
-                physical_row_time = sum(move['time'] for move in self.simulator.movement_history)
-                print(f"Row-wise centering complete in {time.time() - row_start_time:.3f} seconds, physical time: {physical_row_time:.6f} seconds")
-                print(f"Made {row_moves_made} moves during row-wise centering")
-                
-                # Update atoms_moved counter
-                atoms_moved += row_moves_made
-                
-                # Check if target zone is full after row-centering
-                target_region = self.simulator.field[target_start_row:target_end_row, 
-                                                    target_start_col:target_end_col]
-                defects_after_row = np.sum(target_region == 0)
-                print(f"Defects after row-centering: {defects_after_row}")
-                
-                if defects_after_row == 0:
-                    print("Perfect arrangement achieved after row-centering!")
-                    self.simulator.target_lattice = self.simulator.field.copy()
-                    early_exit = True
-                    break
-                
+            print("\nStep 1: Row-wise and column-wise centering...")
+
+            # Row-wise centering
+            print("Step 1.1: Applying row-wise centering...")
+            row_start_time = time.time()
+            self.simulator.movement_history = []
+            self.row_wise_centering(show_visualization=False)
+                    
+            # Save movement history
+            total_movement_history.extend(self.simulator.movement_history)
+            row_moves_made = len(self.simulator.movement_history)
+                    
+            # Calculate total physical time from movement history
+            physical_row_time = sum(move['time'] for move in self.simulator.movement_history)
+            print(f"Row-wise centering complete in {time.time() - row_start_time:.3f} seconds, physical time: {physical_row_time:.6f} seconds")
+            print(f"Made {row_moves_made} moves during row-wise centering")
+                    
+            # Check if target zone is full after row-centering
+            target_region = self.simulator.field[target_start_row:target_end_row, 
+                                                target_start_col:target_end_col]
+            defects_after_row = np.sum(target_region == 0)
+            print(f"Defects after row-centering: {defects_after_row}")
+                    
+            # Check if we've achieved perfect fill (very unlikely but check anyway)
+            if defects_after_row == 0:
+                print("Perfect arrangement achieved after row-centering!")
+                self.simulator.target_lattice = self.simulator.field.copy()
+                early_exit = True
+            else:
                 # Column-wise centering
-                print(f"Step 2.{iteration}: Applying column-wise centering...")
+                print("Step 1.2: Applying column-wise centering...")
                 col_start_time = time.time()
                 self.simulator.movement_history = []
-                
-                self.column_wise_centering(
-                    show_visualization=False  # Don't show animation yet
-                )
-                
+                self.column_wise_centering(show_visualization=False)
+                        
                 # Save movement history
                 total_movement_history.extend(self.simulator.movement_history)
                 col_moves_made = len(self.simulator.movement_history)
-                
+                        
                 # Calculate total physical time from movement history
                 physical_col_time = sum(move['time'] for move in self.simulator.movement_history)
                 print(f"Column-wise centering complete in {time.time() - col_start_time:.3f} seconds, physical time: {physical_col_time:.6f} seconds")
                 print(f"Made {col_moves_made} moves during column-wise centering")
-                
-                # Update atoms_moved counter
-                atoms_moved += col_moves_made
-                
+                        
                 # Count defects after column-centering
                 target_region = self.simulator.field[target_start_row:target_end_row, 
                                                     target_start_col:target_end_col]
                 defects_after_col = np.sum(target_region == 0)
                 print(f"Defects after column-centering: {defects_after_col}")
-                
+                        
                 # Check if we've achieved perfect fill
                 if defects_after_col == 0:
-                    print(f"Perfect arrangement achieved after iteration {iteration}!")
+                    print("Perfect arrangement achieved after column-centering!")
                     self.simulator.target_lattice = self.simulator.field.copy()
                     early_exit = True
-                    break
-                
-                # Check if we made progress or if we should stop iterating
-                defects_fixed = previous_defects - defects_after_col
-                print(f"Iteration {iteration} fixed {defects_fixed} defects. Total atoms moved: {atoms_moved}")
-                
-                if atoms_moved == 0:
-                    print("No atoms were moved in this iteration. Stopping row-column centering.")
-                    break
-                    
-                previous_defects = defects_after_col
-            
-            if not early_exit:
-                print(f"Completed {iteration} iterations of row-column centering.")
-                
+
+            # Track defects for later steps
+            previous_defects = defects_after_col if not early_exit else 0
+
+            if not early_exit:              
                 # Step 2: Iterative spread-squeeze cycle
                 print("\nStep 2: Starting iterative spread-squeeze cycles...")
                 
                 # Initialize tracking variables for the iteration
-                max_iterations = 8  # Prevent infinite loops in edge cases
-                min_improvement = 2  # Minimum number of defects that must be fixed to continue
+                max_iterations = 10  # Prevent infinite loops in edge cases
+                min_improvement = 1  # Minimum number of defects that must be fixed to continue
                 previous_defects = defects_after_col
                 spread_squeeze_time = 0
                 spread_squeeze_moves = 0
@@ -972,7 +928,88 @@ class CenterMovementManager(BaseMovementManager):
                     print("Perfect arrangement achieved after corner block movements!")
                     self.simulator.target_lattice = self.simulator.field.copy()
                     early_exit = True
-                
+                else:
+                    # Additional spread-squeeze cycles after corner movement
+                    print("\nStep 4b: Additional spread-squeeze cycles after corner movement...")
+                    
+                    # Initialize tracking variables for the iteration
+                    max_additional_iterations = 5  # Maximum number of additional cycles
+                    min_improvement = 1  # Minimum defects that must be fixed to continue
+                    previous_defects = defects_after_corner
+                    additional_iteration = 0
+                    
+                    # Continue iterations until no significant improvement or max iterations reached
+                    while additional_iteration < max_additional_iterations and not early_exit:
+                        additional_iteration += 1
+                        print(f"\nPost-corner spread-squeeze cycle {additional_iteration}/{max_additional_iterations}...")
+                        
+                        # Spread atoms outward
+                        spread_start_time = time.time()
+                        self.simulator.movement_history = []
+                        _, spread_moves, spread_time = self.spread_outer_atoms(
+                            show_visualization=False  # Don't show animation yet
+                        )
+                        
+                        # Save movement history
+                        total_movement_history.extend(self.simulator.movement_history)
+                        
+                        # Calculate total physical time from movement history
+                        physical_spread_time = sum(move['time'] for move in self.simulator.movement_history)
+                        print(f"Post-corner spread phase complete: {spread_moves} atoms moved in {time.time() - spread_start_time:.3f} seconds, physical time: {physical_spread_time:.6f} seconds")
+                        
+                        # First apply row-wise centering to align atoms if atom loss probability != 0
+                        if self.simulator.constraints.get('atom_loss_probability', 0) > 0:
+                            row_squeeze_start_time = time.time()
+                            self.simulator.movement_history = []
+                            _, row_squeeze_time = self.row_wise_centering(
+                                show_visualization=False  # Don't show animation yet
+                            )
+                            # Save movement history
+                            total_movement_history.extend(self.simulator.movement_history)
+
+                            # Calculate total physical time from movement history
+                            physical_row_squeeze_time = sum(move['time'] for move in self.simulator.movement_history)
+                            print(f"Post-corner row squeeze phase complete in {time.time() - row_squeeze_start_time:.3f} seconds, physical time: {physical_row_squeeze_time:.6f} seconds")
+                        
+                        # Then apply column-wise centering
+                        col_squeeze_start_time = time.time()
+                        self.simulator.movement_history = []
+                        _, col_squeeze_time = self.column_wise_centering(
+                            show_visualization=False  # Don't show animation yet
+                        )
+                        
+                        # Save movement history
+                        total_movement_history.extend(self.simulator.movement_history)
+                        
+                        # Calculate total physical time from movement history
+                        physical_col_squeeze_time = sum(move['time'] for move in self.simulator.movement_history)
+                        print(f"Post-corner column squeeze phase complete in {time.time() - col_squeeze_start_time:.3f} seconds, physical time: {physical_col_squeeze_time:.6f} seconds")
+                        
+                        # Count defects after this iteration
+                        target_region = self.simulator.field[target_start_row:target_end_row, 
+                                                            target_start_col:target_end_col]
+                        current_defects = np.sum(target_region == 0)
+                        
+                        # Calculate improvement
+                        defects_fixed = previous_defects - current_defects
+                        print(f"Defects after post-corner cycle {additional_iteration}: {current_defects} (fixed {defects_fixed} defects)")
+                        
+                        # Check if we've achieved perfect fill
+                        if current_defects == 0:
+                            print("Perfect arrangement achieved after post-corner spread-squeeze cycles!")
+                            self.simulator.target_lattice = self.simulator.field.copy()
+                            early_exit = True
+                            break
+                            
+                        # Check if we should continue
+                        if defects_fixed < min_improvement:
+                            print(f"Stopping post-corner iterations: improvement ({defects_fixed}) below threshold ({min_improvement})")
+                            break
+                            
+                        # Update for next iteration
+                        previous_defects = current_defects
+
+
             if not early_exit:
                 # Step 5: First repair attempt
                 print(f"\nStep 5: First repair attempt for {defects_after_corner} defects...")

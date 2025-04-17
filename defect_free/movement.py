@@ -83,10 +83,14 @@ class MovementManager:
         """
         Top-level method to rearrange atoms using a specified strategy.
         """
+        lost_atoms = 0
+
         self.set_strategy(strategy)
         if strategy == 'center':
             self.center_manager.initialize_target_region()
+            
             return self.center_filling_strategy(show_visualization)
         else:
             self.corner_manager.initialize_target_region()
             return self.corner_filling_strategy(show_visualization)
+        

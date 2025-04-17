@@ -9,10 +9,23 @@ from .simulator import LatticeSimulator
 from .visualizer import LatticeVisualizer
 from .movement import MovementManager
 
-__all__ = [
-    'LatticeSimulator',
-    'LatticeVisualizer',
-    'MovementManager',
-]
+# Import space-time visualization components
+try:
+    from .space_time_extractor import extract_space_time_data, export_to_json, generate_html_file
+    __all__ = [
+        'LatticeSimulator',
+        'LatticeVisualizer',
+        'MovementManager',
+        'extract_space_time_data',
+        'export_to_json',
+        'generate_html_file',
+    ]
+except ImportError:
+    # If space_time_extractor is not available, just import the core components
+    __all__ = [
+        'LatticeSimulator',
+        'LatticeVisualizer',
+        'MovementManager',
+    ]
 
 __version__ = '1.0.0'

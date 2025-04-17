@@ -6,6 +6,10 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from matplotlib.colors import LinearSegmentedColormap
 from typing import List, Dict, Any, Tuple, Optional
+import os
+import shutil
+import sys
+import importlib.util
 
 class LatticeVisualizer:
     """
@@ -282,3 +286,71 @@ class LatticeVisualizer:
         print(f"Saving animation to {filename}...")
         self.ani.save(filename, writer=writer)
         print("Animation saved successfully!")
+
+    def create_space_time_visualization(self, output_dir='visualizations'):
+        """
+        Generate a 3D space-time visualization of atom movements.
+        
+        This method creates:
+        1. JSON data file with atom trajectories
+        2. HTML file with interactive D3.js visualization
+        
+        Args:
+            output_dir: Directory to save visualization files
+            
+        Returns:
+            Path to the generated HTML file
+        """
+        # Import space_time_extractor module
+        try:
+            # First try importing as a package
+            from defect_free.space_time_extractor import extract_space_time_data, export_to_json, generate_html_file
+        except ImportError:
+            # If that fails, try importing from current directory
+            try:
+                from space_time_extractor import extract_space_time_data, export_to_json, generate_html_file
+            except ImportError:
+                # If still fails, look for the file in the same directory as the script
+                module_path = os.path.join(os.path.dirname(__file__), "space_time_extractor.py")
+                if not os.path.exists(module_path):
+                    print("Error: space_time_extractor.py module not found.")
+                    print("Please ensure the space_time_extractor.py file is in the 'defect_free' directory.")
+                    return None
+                
+                # Dynamically load the module
+                spec = importlib.util.spec_from_file_location("space_time_extractor", module_path)
+                space_time_extractor = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(space_time_extractor)
+                
+                # Get the functions from the module
+                extract_space_time_data = space_time_extractor.extract_space_time_data
+                export_to_json = space_time_extractor.export_to_json
+                generate_html_file = space_time_extractor.generate_html_file
+        
+        # Create output directory if it doesn't exist
+        os.makedirs(output_dir, exist_ok=True)
+        
+        print("Extracting space-time trajectory data...")
+        
+        # Check if there is movement history to visualize
+        if not self.simulator.movement_history:
+            print("No movement history found. Please run a rearrangement before creating visualization.")
+            return None
+        
+        # Extract trajectories
+        trajectory_data = extract_space_time_data(self.simulator)
+        
+        # Export to JSON
+        json_path = os.path.join(output_dir, 'atom_trajectories.json')
+        print(f"Exporting trajectory data to {json_path}...")
+        export_to_json(trajectory_data, json_path)
+        
+        # Generate HTML file with the visualization
+        html_path = os.path.join(output_dir, 'space_time_visualization.html')
+        print(f"Generating visualization HTML at {html_path}...")
+        generate_html_file(json_path, html_path)
+        
+        print(f"3D space-time visualization created successfully!")
+        print(f"Open {html_path} in your web browser to view the visualization.")
+        
+        return html_path

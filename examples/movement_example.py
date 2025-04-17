@@ -18,8 +18,8 @@ def main():
     np.random.seed(42)
     
     # Configuration parameters - modify these as needed
-    lattice_size = (50, 50)
-    occupation_prob = 0.5
+    lattice_size = (20, 20)
+    occupation_prob = 0.6
     
     # Step 1: Initialize the lattice
     simulator = LatticeSimulator(initial_size=lattice_size, occupation_prob=occupation_prob)
@@ -124,8 +124,9 @@ def main():
     
     plt.show()
 
+    
     # Create the animation
-    print("\nCreating animation of movements...")
+    #print("\nCreating animation of movements...")
     #animation = visualizer.animate_movements(simulator.movement_history)
 
     # Save the animation as a GIF

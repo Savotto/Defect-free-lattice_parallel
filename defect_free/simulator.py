@@ -118,9 +118,9 @@ class LatticeSimulator:
         
         # Base movement counts at the reference lattice size
         if strategy == 'corner':
-            base_steps = 1.5  # Base steps for corner strategy
+            base_steps = 2  # Base steps for corner strategy
         else:
-            base_steps = 1.8  # Base steps for center strategy
+            base_steps = 2  # Base steps for center strategy
         
         # Scale expected steps based on lattice size using square root scaling
         # This models the intuition that in larger lattices, atoms need to move farther
@@ -147,6 +147,11 @@ class LatticeSimulator:
         # Final calculation with all scaling factors
         max_square_size = int(np.floor(np.sqrt(total_atoms * transport_success_rate * safety_factor)))
         
+        # If the calculated target is only one smaller than the initial lattice, shrink by one more
+        min_dim = min(field_height, field_width)
+        if max_square_size == min_dim - 1:
+            max_square_size = min_dim - 2
+
         # Print diagnostic information
         print(f"Lattice dimensions: {field_height}x{field_width}")
         print(f"Scaling factor: {scaling_factor:.2f}")

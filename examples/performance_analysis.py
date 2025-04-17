@@ -356,7 +356,7 @@ def visualize_results(df, output_dir):
 def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Performance analysis for defect-free lattice simulator')
-    parser.add_argument('--strategies', type=str, default='corner', choices=['center', 'corner', 'both'],
+    parser.add_argument('--strategies', type=str, default='center', choices=['center', 'corner', 'both'],
                        help='Which strategy to analyze (center, corner, or both)')
     parser.add_argument('--sizes', type=str, default='10,20,30,50,70,100',
                        help='Comma-separated list of lattice sizes (square dimensions)')

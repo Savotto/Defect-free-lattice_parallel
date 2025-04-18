@@ -7,7 +7,7 @@ import numpy as np
 from defect_free import LatticeSimulator, LatticeVisualizer
 
 # Initialize simulator with a 30x30 lattice and 70% occupation probability
-simulator = LatticeSimulator(initial_size=(100, 100), occupation_prob=0.7)
+simulator = LatticeSimulator(initial_size=(100, 100), occupation_prob=0.3)
 
 # Generate initial lattice
 simulator.generate_initial_lattice()

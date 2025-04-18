@@ -1156,3 +1156,341 @@ class CenterMovementManager(BaseMovementManager):
         print(f"Total time: {execution_time + total_physical_time:.6f} seconds")
             
         return self.simulator.target_lattice, final_fill_rate, execution_time
+    
+    def blind_center_filling_strategy(self, show_visualization=True):
+        """
+        A modified center-based filling strategy that pre-computes all movements on a planning
+        lattice, then executes them on the real lattice with actual transport efficiency.
+        
+        This simulates a more realistic scenario where movement planning must be done 
+        in advance without the ability to react to atom losses during execution.
+        
+        Args:
+            show_visualization: Whether to visualize the rearrangement
+            
+        Returns:
+            Tuple of (final_lattice, fill_rate, execution_time)
+        """
+        start_time = time.time()
+        
+        # Store the initial state of the real lattice
+        initial_real_lattice = self.simulator.field.copy()
+        initial_total_atoms = np.sum(initial_real_lattice)
+        
+        # Save original transport efficiency setting
+        original_loss_prob = self.simulator.constraints.get('atom_loss_probability', 0.05)
+        
+        print("\nBlind center filling strategy starting...")
+        print(f"Initial atoms: {initial_total_atoms}")
+        print(f"Transport loss probability: {original_loss_prob}")
+        
+        # STEP 1: Create a planning copy with perfect transport (no atom loss)
+        print("\nPhase 1: Planning movements with virtual perfect transport...")
+        
+        # Temporarily set atom loss probability to 0 for planning
+        self.simulator.constraints['atom_loss_probability'] = 0.0
+        
+        # Initialize target region
+        self.initialize_target_region()
+        target_start_row, target_start_col, target_end_row, target_end_col = self.target_region
+        
+        # Record all planned movements
+        planned_moves = []
+        
+        # Run the full center filling strategy to generate movement plans
+        # Row-wise centering
+        print("Planning row-wise centering...")
+        self.simulator.movement_history = []
+        self.row_wise_centering(show_visualization=False)
+        planned_moves.extend(self.simulator.movement_history)
+        
+        # Column-wise centering
+        print("Planning column-wise centering...")
+        self.simulator.movement_history = []
+        self.column_wise_centering(show_visualization=False)
+        planned_moves.extend(self.simulator.movement_history)
+        
+        # Iterative spread-squeeze cycles
+        max_cycles = 6
+        for cycle in range(max_cycles):
+            # Spread atoms outward
+            print(f"Planning spread-squeeze cycle {cycle+1}/{max_cycles}...")
+            self.simulator.movement_history = []
+            _, spread_moves, _ = self.spread_outer_atoms(show_visualization=False)
+            
+            if spread_moves == 0:
+                print("No more atoms to spread - breaking out of spread-squeeze planning")
+                break
+                
+            planned_moves.extend(self.simulator.movement_history)
+            
+            # Apply column-wise centering
+            self.simulator.movement_history = []
+            self.column_wise_centering(show_visualization=False)
+            planned_moves.extend(self.simulator.movement_history)
+        
+        # Move corner blocks
+        print("Planning corner block movements...")
+        self.simulator.movement_history = []
+        self.move_corner_blocks(show_visualization=False)
+        planned_moves.extend(self.simulator.movement_history)
+        
+        # Apply column-wise centering again
+        print("Planning final column-wise centering...")
+        self.simulator.movement_history = []
+        self.column_wise_centering(show_visualization=False)
+        planned_moves.extend(self.simulator.movement_history)
+        
+        # Final spread-squeeze cycles
+        for cycle in range(3):
+            print(f"Planning final spread-squeeze cycle {cycle+1}/3...")
+            
+            # Spread atoms outward
+            self.simulator.movement_history = []
+            _, spread_moves, _ = self.spread_outer_atoms(show_visualization=False)
+            
+            if spread_moves == 0:
+                print("No more atoms to spread - breaking out of final spread-squeeze planning")
+                break
+                
+            planned_moves.extend(self.simulator.movement_history)
+            
+            # Apply column-wise centering
+            self.simulator.movement_history = []
+            self.column_wise_centering(show_visualization=False)
+            planned_moves.extend(self.simulator.movement_history)
+        
+        # Repair defects
+        print("Planning defect repair...")
+        self.simulator.movement_history = []
+        self.repair_defects(show_visualization=False)
+        planned_moves.extend(self.simulator.movement_history)
+        
+        # Check the fill rate in the planning lattice (should be perfect)
+        planning_target = self.simulator.field[target_start_row:target_end_row, 
+                                            target_start_col:target_end_col]
+        planning_defects = np.sum(planning_target == 0)
+        planning_fill_rate = 1.0 - (planning_defects / (self.simulator.side_length ** 2))
+        
+        print(f"\nPlanning completed with {len(planned_moves)} movement operations")
+        print(f"Planning lattice fill rate: {planning_fill_rate:.2%}")
+        print(f"Planning lattice defects: {planning_defects}")
+        
+        # Store a copy of the planned final state
+        planned_final_state = self.simulator.field.copy()
+        
+        # STEP 2: Reset to initial state and apply the movements with real transport efficiency
+        print("\nPhase 2: Executing planned movements with actual transport efficiency...")
+        
+        # Reset the simulator to initial state
+        self.simulator.field = initial_real_lattice.copy()
+        
+        # Restore original atom loss probability
+        self.simulator.constraints['atom_loss_probability'] = original_loss_prob
+        
+        # Clear movement history for real execution
+        self.simulator.movement_history = []
+        
+        # Execute all planned movements
+        moves_executed = 0
+        atoms_lost = 0
+        
+        # Process each planned movement batch
+        for i, planned_batch in enumerate(planned_moves):
+            batch_type = planned_batch.get('type', 'unknown')
+            batch_moves = planned_batch.get('moves', [])
+            
+            if not batch_moves:
+                continue
+                
+            # Create a copy of the current field state
+            current_field = self.simulator.field.copy()
+            
+            # Filter out moves where the source atom is no longer present
+            valid_moves = []
+            for move in batch_moves:
+                from_pos = move.get('from')
+                if current_field[from_pos] == 1:
+                    valid_moves.append(move)
+            
+            if not valid_moves:
+                continue
+                
+            # Determine the maximum movement distance for timing
+            max_distance = 0
+            for move in valid_moves:
+                from_pos = move.get('from')
+                to_pos = move.get('to')
+                distance = abs(to_pos[0] - from_pos[0]) + abs(to_pos[1] - from_pos[1])
+                max_distance = max(max_distance, distance)
+                
+            # Calculate movement time
+            move_time = self.calculate_realistic_movement_time(max_distance)
+            
+            # Apply transport efficiency to the valid moves
+            updated_field, successful_moves, failed_moves = self.apply_transport_efficiency(
+                valid_moves, current_field
+            )
+            
+            # Record in movement history
+            self.simulator.movement_history.append({
+                'type': batch_type,
+                'moves': successful_moves + failed_moves,
+                'state': updated_field.copy(),
+                'time': move_time,
+                'successful': len(successful_moves),
+                'failed': len(failed_moves)
+            })
+            
+            # Update the simulator field
+            self.simulator.field = updated_field.copy()
+            
+            # Update counters
+            moves_executed += len(valid_moves)
+            atoms_lost += len(failed_moves)
+            
+            # Progress reporting for larger lattices
+            if (i+1) % 10 == 0 or i+1 == len(planned_moves):
+                print(f"Executed movement batch {i+1}/{len(planned_moves)}: "
+                    f"{len(successful_moves)} successful, {len(failed_moves)} failed")
+        
+        # Calculate final fill rate
+        target_size = self.simulator.side_length ** 2
+        target_region = self.simulator.field[target_start_row:target_end_row, 
+                                            target_start_col:target_end_col]
+        final_defects = np.sum(target_region == 0)
+        final_fill_rate = 1.0 - (final_defects / target_size)
+        
+        # Calculate retention rate
+        atoms_in_target = np.sum(target_region == 1)
+        retention_rate = atoms_in_target / initial_total_atoms if initial_total_atoms > 0 else 0
+        
+        # Calculate execution time
+        execution_time = time.time() - start_time
+        
+        # Print final results
+        print(f"\nBlind center filling strategy completed in {execution_time:.3f} seconds")
+        print(f"Final fill rate: {final_fill_rate:.2%}")
+        print(f"Remaining defects: {final_defects}")
+        print(f"Final retention rate: {retention_rate:.2%}")
+        print(f"Atoms lost during transport: {atoms_lost}")
+        
+        # Compare with planning lattice
+        if planning_fill_rate > final_fill_rate:
+            fill_difference = planning_fill_rate - final_fill_rate
+            print(f"Fill rate degradation due to atom loss: {fill_difference:.2%}")
+        
+        # Animate if requested
+        if show_visualization and self.simulator.visualizer:
+            self.simulator.visualizer.animate_movements(self.simulator.movement_history)
+        
+        # Calculate total physical time
+        total_physical_time = sum(move['time'] for move in self.simulator.movement_history)
+        print(f"Total physical movement time: {total_physical_time:.6f} seconds")
+        
+        self.simulator.target_lattice = self.simulator.field.copy()
+        return self.simulator.target_lattice, final_fill_rate, execution_time
+    
+    def iterative_blind_center_filling(self, max_iterations=5, min_improvement=0.01, show_visualization=True):
+        """
+        Iteratively applies the blind center filling strategy until the maximum iterations 
+        are reached or no meaningful improvement is made, always using the latest lattice.
+        
+        Args:
+            max_iterations: Maximum number of iterations to attempt
+            min_improvement: Minimum improvement in fill rate to continue iterations
+            show_visualization: Whether to visualize the final rearrangement
+            
+        Returns:
+            Tuple of (final_lattice, fill_rate, execution_time, iterations_used)
+        """
+        start_time = time.time()
+        
+        # Initialize target region once for all iterations
+        self.initialize_target_region()
+        target_region = self.target_region
+        target_start_row, target_start_col, target_end_row, target_end_col = target_region
+        target_size = (target_end_row - target_start_row) * (target_end_col - target_start_col)
+        
+        # Store the original state just for reporting purposes
+        original_total_atoms = np.sum(self.simulator.field)
+        
+        # Track metrics for reporting
+        fill_rates = []
+        iterations_used = 0
+        all_movement_history = []
+        
+        print("\nStarting Iterative Blind Center Filling Strategy")
+        print(f"Target region size: {self.simulator.side_length}x{self.simulator.side_length}")
+        print(f"Target positions: {target_size}")
+        print(f"Initial atoms: {original_total_atoms}")
+        
+        # Iterate for a maximum number of iterations
+        for iteration in range(1, max_iterations + 1):
+            print(f"\nIteration {iteration}/{max_iterations}:")
+            
+            # Reset movement history for this iteration
+            self.simulator.movement_history = []
+            
+            # Run the blind center filling strategy on the current lattice state
+            iteration_start_time = time.time()
+            final_lattice, fill_rate, _ = self.blind_center_filling_strategy(show_visualization=False)
+            
+            # Save the movement history from this iteration with iteration marker
+            iteration_history = self.simulator.movement_history.copy()
+            for record in iteration_history:
+                record['iteration'] = iteration
+            all_movement_history.extend(iteration_history)
+            
+            iteration_time = time.time() - iteration_start_time
+            iterations_used = iteration
+            
+            # Calculate fill rate to verify
+            target_zone = self.simulator.field[target_start_row:target_end_row, 
+                                            target_start_col:target_end_col]
+            defects = np.sum(target_zone == 0)
+            actual_fill_rate = 1.0 - (defects / target_size)
+            fill_rates.append(actual_fill_rate)
+            
+            print(f"Fill rate: {actual_fill_rate:.2%}")
+            print(f"Defects remaining: {defects} out of {target_size} positions")
+            print(f"Time: {iteration_time:.2f} seconds")
+            
+            # Check if we've achieved perfect fill
+            if defects == 0:
+                print(f"Perfect fill achieved in {iteration} iterations!")
+                break
+            
+            # Check improvement if not the first iteration
+            if iteration > 1:
+                improvement = actual_fill_rate - fill_rates[-2]
+                print(f"Improvement: {improvement:.2%}")
+                
+                # Stop if improvement is below threshold
+                if improvement < min_improvement:
+                    print(f"Improvement ({improvement:.2%}) below threshold ({min_improvement:.2%}) - stopping iterations")
+                    break
+            
+            # Check if we've reached the maximum iterations
+            if iteration == max_iterations:
+                print(f"Reached maximum iterations ({max_iterations})")
+        
+        # Store all movement history for visualization
+        self.simulator.movement_history = all_movement_history
+        self.simulator.target_lattice = self.simulator.field.copy()
+        
+        # Visualize the final result if requested
+        if show_visualization and self.simulator.visualizer:
+            print("\nGenerating animation of all iterations...")
+            self.simulator.visualizer.animate_movements(self.simulator.movement_history)
+        
+        execution_time = time.time() - start_time
+        final_fill_rate = fill_rates[-1]
+        
+        print(f"\nIterative Blind Center Filling Results:")
+        print(f"Iterations used: {iterations_used}/{max_iterations}")
+        print(f"Final fill rate: {final_fill_rate:.2%}")
+        print(f"Remaining defects: {int(target_size * (1-final_fill_rate))}")
+        print(f"Total execution time: {execution_time:.3f} seconds")
+        
+        return self.simulator.field.copy(), final_fill_rate, execution_time, iterations_used

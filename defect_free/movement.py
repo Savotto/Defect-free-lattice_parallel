@@ -61,7 +61,11 @@ class MovementManager:
         self.current_strategy = 'center'
         self.center_manager.initialize_target_region()
         self.target_region = self.center_manager.target_region
-        result = self.center_manager.center_filling_strategy(show_visualization)
+        # Get all returned values but only return the first three
+        final_lattice, fill_rate, execution_time= self.center_manager.blind_center_filling_strategy(
+            show_visualization=show_visualization
+        )
+        result = (final_lattice, fill_rate, execution_time)
         self.target_region = self.center_manager.target_region
         self.current_strategy = original_strategy
         return result
@@ -83,7 +87,6 @@ class MovementManager:
         """
         Top-level method to rearrange atoms using a specified strategy.
         """
-        lost_atoms = 0
 
         self.set_strategy(strategy)
         if strategy == 'center':
@@ -93,4 +96,3 @@ class MovementManager:
         else:
             self.corner_manager.initialize_target_region()
             return self.corner_filling_strategy(show_visualization)
-        

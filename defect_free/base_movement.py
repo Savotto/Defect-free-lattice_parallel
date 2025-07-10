@@ -28,7 +28,7 @@ class BaseMovementManager:
         max_acceleration = self.simulator.constraints['max_acceleration']  # m/s²
         max_velocity = self.simulator.constraints['max_velocity']  # m/s 
         site_distance = self.simulator.constraints['site_distance']  # μm
-        settling_time = self.simulator.constraints['settling_time']  # seconds (microsecond)
+        trap_transfer_time = self.simulator.constraints['trap_transfer_time']
         
         # Convert distance from lattice units to meters
         distance_m = distance * site_distance * 1e-6
@@ -47,12 +47,12 @@ class BaseMovementManager:
             # We accelerate until midpoint, then decelerate
             kinematic_time = 2 * np.sqrt(distance_m / max_acceleration)
         
-        # Add settling time
-        kinematic_time += settling_time
+        # Add trap transfer times (before and after movement)
+        total_time = 2 * trap_transfer_time + kinematic_time
         
         # Cache and return result
-        self._movement_time_cache[cache_key] = kinematic_time
-        return kinematic_time
+        self._movement_time_cache[cache_key] = total_time
+        return total_time
 
     def apply_transport_efficiency(self, moves, working_field):
         """

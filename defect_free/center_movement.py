@@ -1161,235 +1161,178 @@ class CenterMovementManager(BaseMovementManager):
         """
         A modified center-based filling strategy that pre-computes all movements on a planning
         lattice, then executes them on the real lattice with actual transport efficiency.
-        
-        This simulates a more realistic scenario where movement planning must be done 
-        in advance without the ability to react to atom losses during execution.
-        
-        Args:
-            show_visualization: Whether to visualize the rearrangement
-            
-        Returns:
-            Tuple of (final_lattice, fill_rate, execution_time)
         """
         start_time = time.time()
-        
-        # Store the initial state of the real lattice
+
+        # Store the initial real lattice and atom count
         initial_real_lattice = self.simulator.field.copy()
-        initial_total_atoms = np.sum(initial_real_lattice)
-        
-        # Save original transport efficiency setting
+        initial_total_atoms = int(initial_real_lattice.sum())
+
+        # Save and disable atom loss for planning
         original_loss_prob = self.simulator.constraints.get('atom_loss_probability', 0.05)
-        
-        print("\nBlind center filling strategy starting...")
-        print(f"Initial atoms: {initial_total_atoms}")
-        print(f"Transport loss probability: {original_loss_prob}")
-        
-        # STEP 1: Create a planning copy with perfect transport (no atom loss)
-        print("\nPhase 1: Planning movements with virtual perfect transport...")
-        
-        # Temporarily set atom loss probability to 0 for planning
         self.simulator.constraints['atom_loss_probability'] = 0.0
-        
+
         # Initialize target region
         self.initialize_target_region()
-        target_start_row, target_start_col, target_end_row, target_end_col = self.target_region
-        
-        # Record all planned movements
+        tsr, tsc, ter, tec = self.target_region
+
         planned_moves = []
-        
-        # Run the full center filling strategy to generate movement plans
-        # Row-wise centering
-        print("Planning row-wise centering...")
+        early_exit = False
+
+        print("\nPhase 1: Planning movements with virtual perfect transport...")
+
+        # --- Row-wise centering ---
+        print("  Planning row-wise centering...")
         self.simulator.movement_history = []
         self.row_wise_centering(show_visualization=False)
         planned_moves.extend(self.simulator.movement_history)
-        
-        # Column-wise centering
-        print("Planning column-wise centering...")
+
+        # --- Column-wise centering ---
+        print("  Planning column-wise centering...")
         self.simulator.movement_history = []
         self.column_wise_centering(show_visualization=False)
         planned_moves.extend(self.simulator.movement_history)
-        
-        # Iterative spread-squeeze cycles
-        max_cycles = 6
-        for cycle in range(max_cycles):
-            # Spread atoms outward
-            print(f"Planning spread-squeeze cycle {cycle+1}/{max_cycles}...")
+
+        # Early exit if planning copy is perfect
+        planning_block = self.simulator.field[tsr:ter, tsc:tec]
+        if np.all(planning_block == 1):
+            print("  Planning lattice is defect-free; skipping further planning.")
+            early_exit = True
+
+        # --- Iterative spread-squeeze cycles ---
+        if not early_exit:
+            max_cycles = 4
+            for cycle in range(max_cycles):
+                print(f"  Planning spread-squeeze cycle {cycle+1}/{max_cycles}...")
+                self.simulator.movement_history = []
+                _, spread_moves, _ = self.spread_outer_atoms(show_visualization=False)
+                if spread_moves == 0:
+                    print("    No more atoms to spread; breaking.")
+                    break
+                planned_moves.extend(self.simulator.movement_history)
+
+                self.simulator.movement_history = []
+                self.column_wise_centering(show_visualization=False)
+                planned_moves.extend(self.simulator.movement_history)
+
+                planning_block = self.simulator.field[tsr:ter, tsc:tec]
+                if np.all(planning_block == 1):
+                    print("    Planning lattice is now perfect; skipping rest of planning.")
+                    early_exit = True
+                    break
+
+        # --- Corner block movements ---
+        if not early_exit:
+            print("  Planning corner block movements...")
             self.simulator.movement_history = []
-            _, spread_moves, _ = self.spread_outer_atoms(show_visualization=False)
-            
-            if spread_moves == 0:
-                print("No more atoms to spread - breaking out of spread-squeeze planning")
-                break
-                
+            self.move_corner_blocks(show_visualization=False)
             planned_moves.extend(self.simulator.movement_history)
-            
-            # Apply column-wise centering
-            self.simulator.movement_history = []
-            self.column_wise_centering(show_visualization=False)
-            planned_moves.extend(self.simulator.movement_history)
-        
-        # Move corner blocks
-        print("Planning corner block movements...")
-        self.simulator.movement_history = []
-        self.move_corner_blocks(show_visualization=False)
-        planned_moves.extend(self.simulator.movement_history)
-        
-        # Apply column-wise centering again
-        print("Planning final column-wise centering...")
-        self.simulator.movement_history = []
-        self.column_wise_centering(show_visualization=False)
-        planned_moves.extend(self.simulator.movement_history)
-        
-        # Final spread-squeeze cycles
-        for cycle in range(3):
-            print(f"Planning final spread-squeeze cycle {cycle+1}/3...")
-            
-            # Spread atoms outward
-            self.simulator.movement_history = []
-            _, spread_moves, _ = self.spread_outer_atoms(show_visualization=False)
-            
-            if spread_moves == 0:
-                print("No more atoms to spread - breaking out of final spread-squeeze planning")
-                break
-                
-            planned_moves.extend(self.simulator.movement_history)
-            
-            # Apply column-wise centering
+
+            planning_block = self.simulator.field[tsr:ter, tsc:tec]
+            if np.all(planning_block == 1):
+                print("    Planning lattice is now perfect after corner moves.")
+                early_exit = True
+
+        # --- Final column-wise centering ---
+        if not early_exit:
+            print("  Planning final column-wise centering...")
             self.simulator.movement_history = []
             self.column_wise_centering(show_visualization=False)
             planned_moves.extend(self.simulator.movement_history)
-        
-        # Repair defects
-        print("Planning defect repair...")
-        self.simulator.movement_history = []
-        self.repair_defects(show_visualization=False)
-        planned_moves.extend(self.simulator.movement_history)
-        
-        # Check the fill rate in the planning lattice (should be perfect)
-        planning_target = self.simulator.field[target_start_row:target_end_row, 
-                                            target_start_col:target_end_col]
-        planning_defects = np.sum(planning_target == 0)
-        planning_fill_rate = 1.0 - (planning_defects / (self.simulator.side_length ** 2))
-        
-        print(f"\nPlanning completed with {len(planned_moves)} movement operations")
-        print(f"Planning lattice fill rate: {planning_fill_rate:.2%}")
-        print(f"Planning lattice defects: {planning_defects}")
-        
-        # Store a copy of the planned final state
+
+            planning_block = self.simulator.field[tsr:ter, tsc:tec]
+            if np.all(planning_block == 1):
+                print("    Planning lattice is now perfect after final centering.")
+                early_exit = True
+
+        # --- Final spread-squeeze cycles ---
+        if not early_exit:
+            for cycle in range(3):
+                print(f"  Planning final spread-squeeze cycle {cycle+1}/3...")
+                self.simulator.movement_history = []
+                _, spread_moves, _ = self.spread_outer_atoms(show_visualization=False)
+                if spread_moves == 0:
+                    print("    No more atoms to spread; breaking.")
+                    break
+                planned_moves.extend(self.simulator.movement_history)
+
+                self.simulator.movement_history = []
+                self.column_wise_centering(show_visualization=False)
+                planned_moves.extend(self.simulator.movement_history)
+
+                planning_block = self.simulator.field[tsr:ter, tsc:tec]
+                if np.all(planning_block == 1):
+                    print("    Planning lattice is now perfect; skipping defect repair.")
+                    early_exit = True
+                    break
+
+        # --- Defect repair planning ---
+        if not early_exit:
+            print("  Planning defect repair...")
+            self.simulator.movement_history = []
+            self.repair_defects(show_visualization=False)
+            planned_moves.extend(self.simulator.movement_history)
+
+        # Save planned final state and fill rate
         planned_final_state = self.simulator.field.copy()
-        
-        # STEP 2: Reset to initial state and apply the movements with real transport efficiency
+        defects = int((planned_final_state[tsr:ter, tsc:tec] == 0).sum())
+        planning_fill = 1 - defects / (self.simulator.side_length**2)
+        print(f"  Planning completed: {planning_fill:.2%} fill, {defects} defects.")
+
+        # --- Phase 2: Execute on real lattice ---
         print("\nPhase 2: Executing planned movements with actual transport efficiency...")
-        
-        # Reset the simulator to initial state
         self.simulator.field = initial_real_lattice.copy()
-        
-        # Restore original atom loss probability
         self.simulator.constraints['atom_loss_probability'] = original_loss_prob
-        
-        # Clear movement history for real execution
         self.simulator.movement_history = []
-        
-        # Execute all planned movements
-        moves_executed = 0
-        atoms_lost = 0
-        
-        # Process each planned movement batch
-        for i, planned_batch in enumerate(planned_moves):
-            batch_type = planned_batch.get('type', 'unknown')
-            batch_moves = planned_batch.get('moves', [])
-            
-            if not batch_moves:
+
+        for idx, batch in enumerate(planned_moves, 1):
+            moves = batch.get('moves', [])
+            if not moves:
                 continue
-                
-            # Create a copy of the current field state
-            current_field = self.simulator.field.copy()
-            
-            # Filter out moves where the source atom is no longer present
-            valid_moves = []
-            for move in batch_moves:
-                from_pos = move.get('from')
-                if current_field[from_pos] == 1:
-                    valid_moves.append(move)
-            
-            if not valid_moves:
+
+            # filter out invalid moves
+            current = self.simulator.field.copy()
+            valid = [m for m in moves if current[m['from']] == 1]
+            if not valid:
                 continue
-                
-            # Determine the maximum movement distance for timing
-            max_distance = 0
-            for move in valid_moves:
-                from_pos = move.get('from')
-                to_pos = move.get('to')
-                distance = abs(to_pos[0] - from_pos[0]) + abs(to_pos[1] - from_pos[1])
-                max_distance = max(max_distance, distance)
-                
-            # Calculate movement time
-            move_time = self.calculate_realistic_movement_time(max_distance)
-            
-            # Apply transport efficiency to the valid moves
-            updated_field, successful_moves, failed_moves = self.apply_transport_efficiency(
-                valid_moves, current_field
-            )
-            
-            # Record in movement history
+
+            # compute max distance and apply
+            max_d = max(abs(m['to'][0]-m['from'][0]) + abs(m['to'][1]-m['from'][1]) for m in valid)
+            t_physical = self.calculate_realistic_movement_time(max_d)
+            updated, succ, fail = self.apply_transport_efficiency(valid, current)
+
             self.simulator.movement_history.append({
-                'type': batch_type,
-                'moves': successful_moves + failed_moves,
-                'state': updated_field.copy(),
-                'time': move_time,
-                'successful': len(successful_moves),
-                'failed': len(failed_moves)
+                'type': batch.get('type',''),
+                'moves': succ + fail,
+                'state': updated.copy(),
+                'time': t_physical,
+                'successful': len(succ),
+                'failed': len(fail)
             })
-            
-            # Update the simulator field
-            self.simulator.field = updated_field.copy()
-            
-            # Update counters
-            moves_executed += len(valid_moves)
-            atoms_lost += len(failed_moves)
-            
-            # Progress reporting for larger lattices
-            if (i+1) % 10 == 0 or i+1 == len(planned_moves):
-                print(f"Executed movement batch {i+1}/{len(planned_moves)}: "
-                    f"{len(successful_moves)} successful, {len(failed_moves)} failed")
-        
-        # Calculate final fill rate
-        target_size = self.simulator.side_length ** 2
-        target_region = self.simulator.field[target_start_row:target_end_row, 
-                                            target_start_col:target_end_col]
-        final_defects = np.sum(target_region == 0)
-        final_fill_rate = 1.0 - (final_defects / target_size)
-        
-        # Calculate retention rate
-        atoms_in_target = np.sum(target_region == 1)
-        retention_rate = atoms_in_target / initial_total_atoms if initial_total_atoms > 0 else 0
-        
-        # Calculate execution time
-        execution_time = time.time() - start_time
-        
-        # Print final results
-        print(f"\nBlind center filling strategy completed in {execution_time:.3f} seconds")
-        print(f"Final fill rate: {final_fill_rate:.2%}")
-        print(f"Remaining defects: {final_defects}")
-        print(f"Final retention rate: {retention_rate:.2%}")
-        print(f"Atoms lost during transport: {atoms_lost}")
-        
-        # Compare with planning lattice
-        if planning_fill_rate > final_fill_rate:
-            fill_difference = planning_fill_rate - final_fill_rate
-            print(f"Fill rate degradation due to atom loss: {fill_difference:.2%}")
+            self.simulator.field = updated
+
+            if idx % 10 == 0 or idx == len(planned_moves):
+                print(f"  Executed batch {idx}/{len(planned_moves)}: "
+                    f"{len(succ)} succeeded, {len(fail)} failed")
+
+        # Compute final metrics
+        final_block = self.simulator.field[tsr:ter, tsc:tec]
+        final_defects = int((final_block == 0).sum())
+        final_fill = 1 - final_defects / (self.simulator.side_length**2)
+        retention = final_block.sum() / initial_total_atoms if initial_total_atoms else 0
+        exec_time = time.time() - start_time
+
+        print(f"\nBlind center filling completed in {exec_time:.3f}s:")
+        print(f"  Final fill rate: {final_fill:.2%}, defects: {final_defects}")
+        print(f"  Retention rate: {retention:.2%}")
         
         # Animate if requested
         if show_visualization and self.simulator.visualizer:
             self.simulator.visualizer.animate_movements(self.simulator.movement_history)
         
-        # Calculate total physical time
-        total_physical_time = sum(move['time'] for move in self.simulator.movement_history)
-        print(f"Total physical movement time: {total_physical_time:.6f} seconds")
-        
         self.simulator.target_lattice = self.simulator.field.copy()
-        return self.simulator.target_lattice, final_fill_rate, execution_time
+        return self.simulator.target_lattice, final_fill, exec_time
+
     
     def iterative_blind_center_filling(self, max_iterations=5, min_improvement=0.01, show_visualization=True):
         """

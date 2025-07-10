@@ -66,3 +66,25 @@ dmypy.json
 # OS
 .DS_Store
 Thumbs.db
+
+
+# Ignore all PNG images
+*.png
+
+# Ignore all GIF images
+*.gif
+
+# Ignore all CSV files
+*.csv
+
+# Ignore all JSON files
+*.json
+
+# Ignore all pickle files
+*.pickle
+
+# Ignore all h5 files
+
+*.npz
+
+*.txt

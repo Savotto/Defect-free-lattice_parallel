@@ -110,9 +110,9 @@ The package includes a rich visualization toolkit:
 
 ## Dependencies
 
-- Python >= 3.8
-- NumPy >= 1.20.0
-- Matplotlib >= 3.4.0
+- Python 3.11.4
+- NumPy 1.26.4
+- Matplotlib 3.10.1.
 
 ## Future Improvements
 

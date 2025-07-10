@@ -18,8 +18,8 @@ def main():
     np.random.seed(42)
     
     # Configuration parameters - modify these as needed
-    lattice_size = (20, 20)
-    occupation_prob = 0.6
+    lattice_size = (10, 10)
+    occupation_prob = 0.7
     
     # Step 1: Initialize the lattice
     simulator = LatticeSimulator(initial_size=lattice_size, occupation_prob=occupation_prob)
@@ -74,7 +74,36 @@ def main():
     print(f"\n{strategy_name} filling completed in {execution_time:.3f} seconds")
     print(f"Final fill rate: {fill_rate:.2%}")
     
-    # Create a figure comparing initial and final states
+    # Create separate figures for initial and final lattices
+    # Initial lattice figure
+    initial_fig = plt.figure(figsize=(10, 10))
+    initial_ax = initial_fig.add_subplot(111)
+    visualizer.plot_lattice(
+        initial_lattice, 
+        title="Initial Lattice", 
+        highlight_region=target_region,
+        ax=initial_ax
+    )
+    plt.tight_layout()
+    # Save the initial lattice figure
+    initial_fig.savefig(f"{strategy_name.lower()}_initial_lattice.png", dpi=300)
+    print(f"Initial lattice saved as '{strategy_name.lower()}_initial_lattice.png'")
+    
+    # Final lattice figure
+    final_fig = plt.figure(figsize=(10, 10))
+    final_ax = final_fig.add_subplot(111)
+    visualizer.plot_lattice(
+        after_filling_lattice, 
+        title=f"After {strategy_name} Filling", 
+        highlight_region=target_region,
+        ax=final_ax
+    )
+    plt.tight_layout()
+    # Save the final lattice figure
+    final_fig.savefig(f"{strategy_name.lower()}_final_lattice.png", dpi=300)
+    print(f"Final lattice saved as '{strategy_name.lower()}_final_lattice.png'")
+    
+    # Also keep the original combined figure for comparison
     fig, axes = plt.subplots(1, 2, figsize=(12, 6))
     
     # Plot initial state
@@ -94,6 +123,9 @@ def main():
     )
     
     plt.tight_layout()
+    # Save the combined figure
+    fig.savefig(f"{strategy_name.lower()}_comparison.png", dpi=300)
+    print(f"Comparison figure saved as '{strategy_name.lower()}_comparison.png'")
     
     # Create a visualization of the defects before and after
     fig2, axes2 = plt.subplots(1, 2, figsize=(12, 6))

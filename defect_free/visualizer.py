@@ -31,6 +31,7 @@ class LatticeVisualizer:
             'grid': '#CCCCCC',            # Lighter gray for grid
             'atom': '#3366CC',            # Blue for atoms
             'target': '#FFD700',          # Gold for target region
+            'slm_trap': '#999999',        # Gray for SLM-trap rings
         }
         
         # Animation settings
@@ -42,7 +43,7 @@ class LatticeVisualizer:
                     highlight_region: Optional[Tuple[int, int, int, int]] = None,
                     show_grid: bool = True, ax=None):
         """
-        Plot a single lattice state with atoms as circles.
+        Plot a single lattice state with atoms as circles and SLM-traps as rings.
         
         Args:
             lattice: 2D numpy array representing the lattice
@@ -87,10 +88,20 @@ class LatticeVisualizer:
                                linewidth=2, linestyle='--')
             ax.add_patch(rect)
         
-        # Find all atom positions
+        # Add SLM-trap rings at all lattice positions
+        for row in range(rows):
+            for col in range(cols):
+                ring = plt.Circle((col, row), 0.4, 
+                                facecolor='none',  # Empty interior
+                                edgecolor=self.colors['slm_trap'], 
+                                linewidth=1.0,
+                                alpha=0.7)
+                ax.add_patch(ring)
+        
+        # Find all atom positions and add filled circles
         atom_positions = np.where(lattice == 1)
         for row, col in zip(atom_positions[0], atom_positions[1]):
-            circle = plt.Circle((col, row), 0.4, 
+            circle = plt.Circle((col, row), 0.35,  # Slightly smaller than the rings
                               facecolor=self.colors['atom'],
                               edgecolor='black', linewidth=0.5)
             ax.add_patch(circle)

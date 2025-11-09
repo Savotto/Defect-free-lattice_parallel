@@ -14,7 +14,7 @@ class LatticeSimulator:
     SITE_DISTANCE = 5.0  # μm
     MAX_ACCELERATION = 2750.0  # m/s² (PowerMove)
     TRAP_TRANSFER_TIME = 60e-6  # seconds (60μs)
-    ATOM_LOSS_PROBABILITY = 0.0 # Probability of atom loss per move
+    ATOM_LOSS_PROBABILITY = 0 # Probability of atom loss per move
     MAX_VELOCITY = 0.13  # m/s (Parallel Assembly of Arbitrary Defect-Free Atom Arrays with a Multitweezer Algorithm)
     
     def __init__(self, 

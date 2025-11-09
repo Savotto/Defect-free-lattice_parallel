@@ -533,7 +533,7 @@ def main():
                         help='Lattice size (will be size x size)')
     parser.add_argument('--occupation', type=float, default=0.7,
                         help='Initial occupation probability')
-    parser.add_argument('--loss', type=float, default=0.05,
+    parser.add_argument('--loss', type=float, default=0.0,
                         help='Atom loss probability')
     parser.add_argument('--output', default='benchmark_results',
                         help='Directory to save results')

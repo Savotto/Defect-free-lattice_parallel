@@ -1,123 +1,156 @@
 # Defect-free Lattice Simulator
 
-A Python package for simulating atom rearrangement in optical lattices using SLM and AOD trap systems, with realistic physical constraints. It helps optimize and compare strategies for creating defect-free regions.
+A Python toolkit for simulating atom rearrangement in optical lattices under realistic physical constraints. It helps analyse and compare strategies for assembling defect-free regions using spatial light modulators (SLMs) and acousto-optic deflectors (AODs).
 
 ## Features
 
-- **Physical Constraints Modeling**: Implements realistic atom movement physics including max acceleration, velocity limits, trap transfer time, and atom loss probability
-- **Multiple Movement Strategies**: 
-  - Center-based strategy (places target zone in the center) 
-  - Corner-based strategy (places target zone in the top-left corner) 
-  However, corner-based is computationally faster.
-- **Advanced Algorithms**:
-  - Row-wise and column-wise atom alignment
-  - Sophisticated defect repair with path optimization
-  - Block-based corner atom movement
-  - A* pathfinding for complex moves
-- **Performance Analysis**: Tools to quantify execution metrics (to be implemented)
-- **Rich Visualization**: Animated atom movements and more
-- **Transport Loss Modeling**: Probabilistic atom loss simulation during transport
+- **Physical model**: Configurable limits for acceleration, velocity, trap transfer timing, and atom loss probability.
+- **Movement strategies**: Center- and corner-based algorithms that share the same simulator back-end.
+- **Planning pipeline**: Row/column centering, spread-squeeze cycles, targeted defect repair, and path compression.
+- **Visualization tools**: Static lattice snapshots and animated movement sequences.
+- **Benchmark utilities**: Scripts for scaling studies and occupancy sweeps, with CSV/JSON/NPZ outputs.
 
 ## Project Structure
 
 ```
 defect-free/
-├── defect_free/                # Main package
+├── defect_free/
 │   ├── __init__.py
-│   ├── simulator.py            # Core simulator logic
-│   ├── movement.py             # Movement manager interface
-│   ├── base_movement.py        # Common movement functionality
-│   ├── center_movement.py      # Center-based movement strategy
-│   ├── corner_movement.py      # Corner-based movement strategy
-│   └── visualizer.py           # Visualization tools
-├── examples/                   # Example scripts
+│   ├── simulator.py           # Core simulator and physical timing
+│   ├── movement.py            # Strategy interface
+│   ├── base_movement.py       # Shared helpers for planners
+│   ├── center_movement.py     # Center strategy implementation
+│   ├── corner_movement.py     # Corner strategy implementation
+│   └── visualizer.py          # Plotting and animation utilities
+├── benchmarks/
+│   ├── blind_benchmark.py
+│   └── comparison_N.py
+├── examples/
 │   ├── complete_workflow_example.py
-│   ├── movement_example.py     
+│   ├── movement_example.py
 │   └── performance_analysis.py
-├── .gitignore                  # Ignore generated files
-└── README.md                   # This file
+├── requirements.txt
+└── README.md
 ```
 
 ## Physical Model
 
-The simulator models physical constraints of optical lattice manipulations:
+The simulator enforces trapezoidal velocity profiles that honour both maximum acceleration and velocity limits. Key defaults (overridable via configuration):
 
-- **Site Distance**: 5.0 μm (configurable)
-- **Maximum Acceleration**: 2750.0 m/s² (configurable)
-- **Maximum Velocity**: 0.1 m/s (configurable)
-- **Settling Time**: 1 μs (configurable)
-- **Atom Loss Probability**: Configurable, default 0.05
+- Lattice site spacing: 5.0 µm
+- Maximum acceleration: 2750 m/s²
+- Maximum velocity: 0.1 m/s
+- Settling time: 1 µs
+- Atom transport loss: configurable (default 0)
 
-Movement timing calculations use a realistic trapezoidal velocity profile that respects both maximum acceleration and velocity limits.
+## Movement Strategies (only center is used)
 
-## Movement Strategies
+### Center strategy
+1. Places the target region centrally.
+2. Aligns rows and columns around the target.
+3. Executes spread-squeeze cycles to repair larger defects.
+4. Uses targeted path planning (direct, L-shaped, A* search) for remaining vacancies.
 
-### Center-Based Strategy
+### Corner strategy
+1. Anchors the target in a lattice corner.
+2. Squeezes rows left and columns up to fill the corner block.
+3. Applies right-edge squeezing for atoms below the target area.
+4. Finalizes with localized defect repair.
 
-1. Places the target zone in the center of the field
-2. Uses row-wise and column-wise centering to align atoms
-3. Iteratively spreads and squeezes outer atoms
-4. Repairs remaining defects using path optimization
+Both strategies share batching logic that groups non-conflicting moves, reducing physical execution time.
 
-### Corner-Based Strategy
+## Algorithm Reference (Center)
 
-1. Places the target zone in the top-left corner
-2. Squeezes rows left and columns up to fill the target
-3. Uses right-edge squeezing for atoms below the target
-4. Iteratively applies targeted filling techniques
-
-Both strategies implement sophisticated defect repair algorithms that use optimal path finding to move atoms to remaining defect positions.
-
-### Script Examples
-
-Several example scripts are included in the `examples/` directory:
-
-- `complete_workflow_example.py`: Simple end-to-end example. Can be used with both center and corner strategies.
-- `movement_example.py`: Demonstrates movements. Can be run using both center and corner startegies.
-- `performance_analysis.py`: Performance testing across different parameters
-
-## Algorithm Details
-
-### Row-wise & Column-wise Centering
-
-Pushes atoms toward the center of their respective rows or columns to create orderly arrangements within the target zone. This creates a foundation for more complex operations.
-
-### Defect Repair
-
-The algorithm uses a multi-tiered pathfinding approach for optimal atom movement:
-1. Attempts direct moves when possible (same row/column)
-2. Uses L-shaped paths with a single turn
-3. Falls back to A* search for complex paths
-4. Compresses paths to reduce the number of discrete movements
-
-### Movement Optimization
-
-For parallel operations, atoms are grouped into batches that can be moved simultaneously without collisions. This reduces the physical execution time required.
+- **Row/column centering**: Builds dense stripes that feed later repair steps.
+- **Spread-squeeze cycles**: Iteratively redistribute atoms from populated regions into vacancies.
+- **Defect repair**: Progressive planner that tries straight moves, single-turn routes (L-shaped), then A* search.
+- **Batch compression**: Merges compatible moves into parallel batches to minimize total operations.
 
 ## Visualization
 
-The package includes a rich visualization toolkit:
-
-- **Lattice State Visualization**: View the atom arrangement at any point
-- **Movement Animation**: Animate the sequence of atom movements
-- **Movement Analysis**: Analyze movement patterns and efficiency
+`defect_free.visualizer` renders lattice states, movement sequences, and statistics. Can be used to generate GIFs as in `examples/movement_example.py`.
 
 ## Performance Considerations
 
-- **Execution Speed**: The center strategy typically requires more computation time but can achieve better fill rates in some scenarios
-- **Physical Movement Time**: The corner strategy is having less complex path finding in the final filling and thus is faster in computation.
-- **Atom Loss**: Both strategies are designed to be robust to atom loss during transport
+- The center strategy achieves slightly higher fill rates but requires heavier planning.
+- The corner strategy runs faster computationally, suitable for quick parameter sweeps.
+- Transport loss settings can be tuned to model imperfect trap transfers.
 
 ## Dependencies
 
-- Python 3.11.4
-- NumPy 1.26.4
-- Matplotlib 3.10.1.
+Python 3.11 (3.11.4 in my setup) with packages listed in `requirements.txt` (NumPy, Matplotlib, Pandas, SciPy, tqdm). Install them in a virtual environment before running the scripts.
 
-## Future Improvements
+## Benchmark quick-run instructions
 
-- Center strategy could benefit from first iterating the row squeezing some times and after that iteratively squeeze columns.
-- Add support for arbitrary target shapes beyond square lattices
+Both benchmark entry points live in `benchmarks/` and the scripts are in the end of the file:
+
+- `blind_benchmark.py`: Sweeps lattice sizes (10x10 to 100x100), occupation levels (0.5, 0.7, 0.9), and transport loss rates (0.0, 0.01, 0.05). It records fill/retention statistics and gives CSV summaries together with plots.
+- `comparison_N.py`: Measures how the full rearrangement algorithm scales with lattice size. It repeats simulations over a size list (e.g., 50…150), fits power-law exponents for the number of move batches, and saves JSON/NPZ data. Also plots the result against literature lines (PSCA).
+
+### Prerequisites
+
+- Python 3.11 (I use 3.11.4)
+- Dependencies installed via `pip install -r requirements.txt`
+
+### Environment setup
+
+1. Create and activate a virtual environment:
+
+    ```bash
+    python3 -m venv .venv
+    source .venv/bin/activate
+    ```
+
+2. Install dependencies:
+
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+### Quick sanity check
+
+Verify the installation with a light run:
+
+```bash
+python benchmarks/comparison_N.py --initial-sizes 50 --trials 5 --output quick_check --seed 42
+```
+
+### Full L = 60…150 sweep
+
+This preset runs lattice sizes 60,70,…,150 (step 10) with 20 trials each and stores outputs in `N_scaling_075_L60-150`.
+
+```bash
+bash run_L60_150.sh
+```
+
+Equivalent to the following command:
+
+```bash
+python benchmarks/comparison_N.py \
+  --initial-sizes 60,70,80,90,100,110,120,130,140,150 \
+  --occupation 0.75 \
+  --loss 0.0 \
+  --trials 20 \
+  --seed 42 \
+  --output N_scaling_075_L60-150 \
+  --strategy center \
+  --max-cycles 6 \
+  --target-fill 1.0
+```
+
+### Outputs
+
+- `blind_benchmark.py` writes CSV files and plots under `benchmark_results/`
+- `comparison_N.py` produces figures, `complete_algorithm_results.json`, and `complete_algorithm_data.npz` in the chosen output directory
+
+### Visualization example
+- `examples/movement_example.py` simulates a 20x20 lattice with the movement strategy, and exports a GIF.
 
 
+### Additional examples 
+
+- `examples/complete_workflow_example.py` runs the full pipeline end-to-end with configurable strategies.
+- `examples/performance_analysis.py` provides a template for timing studies with custom parameter sweeps.
+
+---
 

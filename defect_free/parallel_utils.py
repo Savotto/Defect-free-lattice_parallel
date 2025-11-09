@@ -1,9 +1,5 @@
 """
-parallel_utils.py
-
 Utilities for merging movement batches in parallel.
-Implements global parallelization respecting AOD physics constraints.
-Used for achieving improved move scaling (~N^0.472).
 """
 
 from typing import List, Dict, Tuple
@@ -19,32 +15,30 @@ def manhattan_path(move: Move) -> List[Tuple[int, int]]:
     tr, tc = move['to']
     path = [(sr, sc)]
     # Horizontal segment
-    if tc != sc:
-        dc = 1 if tc > sc else -1
-        for c in range(sc + dc, tc + dc, dc):
-            path.append((sr, c))
+    dc = 1 if tc > sc else -1
+    for c in range(sc + dc, tc + dc, dc):
+        path.append((sr, c))
     # Vertical segment
-    if tr != sr:
-        dr = 1 if tr > sr else -1
-        for r in range(sr + dr, tr + dr, dr):
-            path.append((r, tc))
+    dr = 1 if tr > sr else -1
+    for r in range(sr + dr, tr + dr, dr):
+        path.append((r, tc))
     return path
 
 
 def can_parallelize_moves(field: np.ndarray, moves1: List[Move], moves2: List[Move]) -> bool:
     """
-    Return True if moves1 and moves2 can be executed in parallel under all AOD restrictions.
+    Return True if moves1 and moves2 can be executed in parallel under all constraints.
     """
-
     # Gather static atoms (not moving in either batch)
     sources1 = {tuple(m['from']) for m in moves1}
     sources2 = {tuple(m['from']) for m in moves2}
     all_atoms = set(zip(*np.where(field == 1)))
     static_atoms = all_atoms - sources1 - sources2
 
+    # Combine moves for global checks
     moves_all = moves1 + moves2
 
-    # 1) Static atom blocking within the same line
+    # 1) Static-atom interior path-block
     for m in moves_all:
         sr, sc = m['from']
         tr, tc = m['to']
@@ -57,137 +51,113 @@ def can_parallelize_moves(field: np.ndarray, moves1: List[Move], moves2: List[Mo
                 if (r, sc) in static_atoms:
                     return False
 
-    # 2) Cross-row/column no-passing vs statics in other active lines
-    statics_by_row = {}
-    statics_by_col = {}
-    for (r_nm, c_nm) in static_atoms:
-        statics_by_row.setdefault(r_nm, set()).add(c_nm)
-        statics_by_col.setdefault(c_nm, set()).add(r_nm)
 
-    rows_in_step = {m['from'][0] for m in moves_all}
-    cols_in_step = {m['from'][1] for m in moves_all}
-
-    # Horizontal moves cannot cross static columns in other active rows
-    for m in moves_all:
-        (sr, sc), (tr, tc) = m['from'], m['to']
-        if sr == tr:
-            lo, hi = sorted((sc, tc))
-            for r_other in rows_in_step - {sr}:
-                for c_nm in statics_by_row.get(r_other, ()):
-                    if lo < c_nm < hi:
-                        return False
-    # Vertical moves cannot cross static rows in other active columns
-    for m in moves_all:
-        (sr, sc), (tr, tc) = m['from'], m['to']
-        if sc == tc:
-            lo, hi = sorted((sr, tr))
-            for c_other in cols_in_step - {sc}:
-                for r_nm in statics_by_col.get(c_other, ()):
-                    if lo < r_nm < hi:
-                        return False
-
-    # 3) Unique starting and ending positions
+    # 4) Endpoint exclusivity
     srcs = {tuple(m['from']) for m in moves_all}
     tars = {tuple(m['to']) for m in moves_all}
     if len(srcs) < len(moves_all) or len(tars) < len(moves_all):
         return False
 
-    # 4) No path intersection (excluding identical target)
+    # 5) Move-to-move path-disjointness
     paths1 = [set(manhattan_path(m)) for m in moves1]
     paths2 = [set(manhattan_path(m)) for m in moves2]
     for i, p1 in enumerate(paths1):
         for j, p2 in enumerate(paths2):
             inter = p1 & p2
+            # allow shared destination
             shared = {tuple(moves1[i]['to'])} if moves1[i]['to'] == moves2[j]['to'] else set()
             if inter - shared:
                 return False
 
-    # 5) Strict ordering within same line
-    for i in range(len(moves_all)):
-        r1s, c1s = moves_all[i]['from']
-        r1t, c1t = moves_all[i]['to']
-        for j in range(i + 1, len(moves_all)):
-            r2s, c2s = moves_all[j]['from']
-            r2t, c2t = moves_all[j]['to']
-            # Same row → preserve column order
-            if r1s == r2s:
-                if c1s < c2s and not (c1t <= c2t): return False
-                if c1s > c2s and not (c1t >= c2t): return False
-                if c1s == c2s and c1t != c2t: return False
-            # Same column → preserve row order
-            if c1s == c2s:
-                if r1s < r2s and not (r1t <= r2t): return False
-                if r1s > r2s and not (r1t >= r2t): return False
-                if r1s == r2s and r1t != r2t: return False
+    # 6) Intra-line left/right monotonicity
+    nrows, ncols = field.shape
+    cut_col = ncols // 2
+    cut_row = nrows // 2
+    # Check rows
+    moves_by_row = {}
+    for m in moves_all:
+        r, c = m['from']
+        moves_by_row.setdefault(r, []).append(m)
+    for r, mlist in moves_by_row.items():
+        left = sorted([m['from'][1] for m in mlist if m['from'][1] <= cut_col], reverse=True)
+        if left != sorted(left, reverse=True):
+            return False
+        right = sorted([m['from'][1] for m in mlist if m['from'][1] > cut_col])
+        if right != sorted(right):
+            return False
+    # Check columns
+    moves_by_col = {}
+    for m in moves_all:
+        r, c = m['from']
+        moves_by_col.setdefault(c, []).append(m)
+    for c, mlist in moves_by_col.items():
+        upper = sorted([m['from'][0] for m in mlist if m['from'][0] <= cut_row], reverse=True)
+        if upper != sorted(upper, reverse=True):
+            return False
+        lower = sorted([m['from'][0] for m in mlist if m['from'][0] > cut_row])
+        if lower != sorted(lower):
+            return False
 
-    # 6) Strict ordering across lines
+    # 7) Cross-row strict column-ordering
     for m1 in moves1:
-        r1, c1 = m1['from']; r1t, c1t = m1['to']
+        r1, c1 = m1['from']; _, c1t = m1['to']
         for m2 in moves2:
-            r2, c2 = m2['from']; r2t, c2t = m2['to']
-            # Across rows → column monotonicity
+            r2, c2 = m2['from']; _, c2t = m2['to']
             if r1 != r2:
-                if c1 > c2 and c1t <= c2t: return False
-                if c1 < c2 and c1t >= c2t: return False
-                if c1 == c2 and c1t != c2t: return False
-            # Across columns → row monotonicity
+                if c1 > c2 and c1t <= c2t:
+                    return False
+                if c1 < c2 and c1t >= c2t:
+                    return False
+                if c1 == c2 and c1t != c2t:
+                    return False
+
+    # 8) Cross-column strict row-ordering
+    for m1 in moves1:
+        r1, c1 = m1['from']; r1t, _ = m1['to']
+        for m2 in moves2:
+            r2, c2 = m2['from']; r2t, _ = m2['to']
             if c1 != c2:
-                if r1 > r2 and r1t <= r2t: return False
-                if r1 < r2 and r1t >= r2t: return False
-                if r1 == r2 and r1t != r2t: return False
+                if r1 > r2 and r1t <= r2t:
+                    return False
+                if r1 < r2 and r1t >= r2t:
+                    return False
+                if r1 == r2 and r1t != r2t:
+                    return False
 
     return True
 
 
 def merge_parallel_batches(batches: List[Batch], initial_field: np.ndarray) -> List[Batch]:
     """
-    Globally merge sequential batches into larger parallel super-steps when possible.
+    Merge sequential batches into larger parallel batches when possible.
     Prints initial and reduced batch counts.
     """
     print(f"Initial number of batches: {len(batches)}")
     merged: List[Batch] = []
-    used = set()
+    i = 0
     field_before = initial_field.copy()
 
-    n = len(batches)
-    idx = 0
-    while len(used) < n:
-        # Find next unused batch
-        while idx < n and idx in used:
-            idx += 1
-        if idx >= n:
-            break
-        seed = idx
-        used.add(seed)
+    while i < len(batches):
+        base = batches[i]
+        moves1 = base.get('moves', []).copy()
+        time = base.get('time', 0)
+        end_state = base['state']
+        j = i + 1
 
-        group_indices = [seed]
-        moves_union: List[Move] = list(batches[seed].get('moves', []))
-        end_state = batches[seed]['state']
-        time = batches[seed].get('time', 0)
+        while j < len(batches):
+            cand = batches[j]
+            moves2 = cand.get('moves', [])
+            if can_parallelize_moves(field_before, moves1, moves2):
+                moves1.extend(moves2)
+                time = max(time, cand.get('time', 0))
+                end_state = cand['state']
+                j += 1
+            else:
+                break
 
-        # Try to add compatible batches
-        added = True
-        while added:
-            added = False
-            for j in range(n):
-                if j in used:
-                    continue
-                cand_moves = batches[j].get('moves', [])
-                if can_parallelize_moves(field_before, moves_union, cand_moves):
-                    moves_union.extend(cand_moves)
-                    time = max(time, batches[j].get('time', 0))
-                    end_state = batches[j]['state']
-                    used.add(j)
-                    group_indices.append(j)
-                    added = True
-
-        merged.append({
-            'type': 'parallel_merge',
-            'moves': moves_union,
-            'state': end_state,
-            'time': time,
-            'indices': group_indices
-        })
+        merged.append({'type': 'parallel_merge', 'moves': moves1, 'state': end_state, 'time': time})
+        field_before = end_state.copy()
+        i = j
 
     print(f"Reduced to {len(merged)} parallel batches.")
     return merged

@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from defect_free import LatticeSimulator, LatticeVisualizer
 
 def analyze_complete_algorithm(initial_sizes, occupation_prob=0.75, loss_prob=0.0, 
-                             trials=20, seed=None, strategy='center',
+                             trials=10, seed=None, strategy='center',
                              max_cycles=100, target_fill_rate=1.0):
     """
     Analyze move batch scaling for the complete algorithm until target fill rate.
@@ -52,6 +52,10 @@ def analyze_complete_algorithm(initial_sizes, occupation_prob=0.75, loss_prob=0.
         'achieved_N_std': [],      # Standard deviation of achieved N
         'move_batches_total': [],  # Total number of move batches across all cycles
         'move_batches_total_std': [], # Std dev of total batches
+        'initial_batches': [],     # Initial planned batches before parallel merge
+        'initial_batches_std': [],
+        'reduced_batches': [],     # Reduced planned batches after parallel merge
+        'reduced_batches_std': [],
         'repair_cycles': [],         # Number of cycles needed
         'repair_cycles_std': [],     # Std dev of cycles
         'calculation_time': [],      # Total computational time (ms)
@@ -63,15 +67,16 @@ def analyze_complete_algorithm(initial_sizes, occupation_prob=0.75, loss_prob=0.
     # For each initial size L, run multiple trials
     for L in initial_sizes:
         print(f"\nAnalyzing initial lattice size L = {L} with complete algorithm")
-        
-        
+
         # Metrics for this initial size across trials
         size_achieved_N = []
         size_total_batches = []
+        size_initial_batches = []
+        size_reduced_batches = []
         size_cycles = []
         size_calc_time = []
         size_fill_rate = []
-        
+
         # Run multiple trials
         for trial in range(trials):
             if seed is not None:
@@ -171,23 +176,37 @@ def analyze_complete_algorithm(initial_sizes, occupation_prob=0.75, loss_prob=0.
             # Record metrics for this trial
             size_achieved_N.append(target_N)
             size_total_batches.append(total_batches)
+            # Read parallel planning batch counts if available
+            init_b = getattr(simulator, 'last_planned_initial_batches', None)
+            red_b = getattr(simulator, 'last_planned_reduced_batches', None)
+            if init_b is None:
+                # If not available, set to the observed total_batches as fallback
+                init_b = total_batches
+            if red_b is None:
+                red_b = total_batches
+            size_initial_batches.append(init_b)
+            size_reduced_batches.append(red_b)
             size_cycles.append(cycles)
             size_calc_time.append(calculation_time * 1000)  # Convert to ms
             size_fill_rate.append(current_fill_rate)
-        
-        # Record metrics for this initial size
+
+        # End of trials loop for this L — now record metrics for this initial size
         scaling_data['initial_size'].append(L)
         scaling_data['achieved_N'].append(np.mean(size_achieved_N))
         scaling_data['achieved_N_std'].append(np.std(size_achieved_N))
         scaling_data['move_batches_total'].append(np.mean(size_total_batches))
         scaling_data['move_batches_total_std'].append(np.std(size_total_batches))
+        scaling_data['initial_batches'].append(np.mean(size_initial_batches))
+        scaling_data['initial_batches_std'].append(np.std(size_initial_batches))
+        scaling_data['reduced_batches'].append(np.mean(size_reduced_batches))
+        scaling_data['reduced_batches_std'].append(np.std(size_reduced_batches))
         scaling_data['repair_cycles'].append(np.mean(size_cycles))
         scaling_data['repair_cycles_std'].append(np.std(size_cycles))
         scaling_data['calculation_time'].append(np.mean(size_calc_time))
         scaling_data['calculation_time_std'].append(np.std(size_calc_time))
         scaling_data['final_fill_rate'].append(np.mean(size_fill_rate))
         scaling_data['final_fill_rate_std'].append(np.std(size_fill_rate))
-        
+
         # Print summary for this size
         print(f"  Complete {trials} trials for initial size L = {L}")
         print(f"  Avg achieved target N: {np.mean(size_achieved_N):.1f} ± {np.std(size_achieved_N):.1f}")
@@ -195,20 +214,29 @@ def analyze_complete_algorithm(initial_sizes, occupation_prob=0.75, loss_prob=0.
         print(f"  Avg repair cycles: {np.mean(size_cycles):.1f} ± {np.std(size_cycles):.1f}")
         print(f"  Avg calculation time: {np.mean(size_calc_time):.2f} ± {np.std(size_calc_time):.2f} ms")
         print(f"  Avg final fill rate: {np.mean(size_fill_rate)*100:.2f}% ± {np.std(size_fill_rate)*100:.2f}%")
-    
-    # Fit data to power law model for complete algorithm scaling
+
+    # Fit data to power law model for complete algorithm scaling (done after all sizes processed)
     N_values = np.array(scaling_data['achieved_N'])  # Use achieved N instead of target size
     total_batches = np.array(scaling_data['move_batches_total'])
-    
-    log_N = np.log(N_values)
-    log_total_batches = np.log(total_batches)
-    
-    total_batches_params, total_batches_cov = np.polyfit(log_N, log_total_batches, 1, cov=True)
-    
-    total_batches_exponent = total_batches_params[0]
-    total_batches_exponent_err = np.sqrt(total_batches_cov[0, 0])
-    total_batches_prefactor = np.exp(total_batches_params[1])
-    
+
+    # Fit log-log power law; be robust to degenerate cases (too few points / singular matrix)
+    if len(N_values) < 2 or len(total_batches) < 2:
+        total_batches_exponent = float('nan')
+        total_batches_exponent_err = float('nan')
+        total_batches_prefactor = float('nan')
+    else:
+        log_N = np.log(N_values)
+        log_total_batches = np.log(total_batches)
+        try:
+            total_batches_params, total_batches_cov = np.polyfit(log_N, log_total_batches, 1, cov=True)
+            total_batches_exponent = total_batches_params[0]
+            total_batches_exponent_err = np.sqrt(total_batches_cov[0, 0])
+            total_batches_prefactor = np.exp(total_batches_params[1])
+        except np.linalg.LinAlgError:
+            total_batches_exponent = float('nan')
+            total_batches_exponent_err = float('nan')
+            total_batches_prefactor = float('nan')
+
     # Create complete result dictionary
     result = {
         'data': scaling_data,
@@ -229,7 +257,7 @@ def analyze_complete_algorithm(initial_sizes, occupation_prob=0.75, loss_prob=0.
             'max_cycles': max_cycles
         }
     }
-    
+
     return result
 
 def visualize_results(results, output_dir):
@@ -472,17 +500,17 @@ def visualize_results(results, output_dir):
         f"- Average repair cycles: {np.mean(data['repair_cycles']):.1f}",
         f"- Final fill rate for largest array: {data['final_fill_rate'][-1]*100:.1f}%",
         f"- Calculation time for largest array: {data['calculation_time'][-1]:.1f} ms",
+        f"- Initial planned batches (avg): {np.mean(data.get('initial_batches', [])):.1f}",
+        f"- Reduced planned batches (avg): {np.mean(data.get('reduced_batches', [])):.1f}",
         "",
         "Conclusion:",
     ]
-    
-    # Add conclusion based on results
-    if scaling['batches_exponent'] <= scaling['psca_exponent'] + 0.05:  # Within 0.05 of PSCA
-        scaling_table.append("Our algorithm's batch scaling is comparable to PSCA, which is the better of the two reference algorithms.")
-    elif scaling['batches_exponent'] <= scaling['lsap_exponent']:
-        scaling_table.append("Our algorithm's batch scaling is better than Modified LSAP but not as good as PSCA.")
+    if scaling['batches_exponent'] < scaling['psca_exponent']:
+        scaling_table.append("Our complete algorithm outperforms both Modified LSAP and PSCA in move batch scaling.")
+    elif scaling['batches_exponent'] < scaling['lsap_exponent']:
+        scaling_table.append("Our complete algorithm outperforms Modified LSAP but not PSCA in move batch scaling.")
     else:
-        scaling_table.append("Our algorithm's batch scaling is worse than both reference algorithms.")
+        scaling_table.append("Our complete algorithm has worse move batch scaling than both Modified LSAP and PSCA.")
     
     with open(os.path.join(output_dir, 'complete_algorithm_scaling_comparison.txt'), 'w') as f:
         f.write('\n'.join(scaling_table))
@@ -495,6 +523,10 @@ def visualize_results(results, output_dir):
         N_std=N_std,
         total_batches=total_batches,
         total_batches_std=total_batches_std,
+    initial_batches=np.array(data.get('initial_batches')),
+    initial_batches_std=np.array(data.get('initial_batches_std')),
+    reduced_batches=np.array(data.get('reduced_batches')),
+    reduced_batches_std=np.array(data.get('reduced_batches_std')),
         repair_cycles=np.array(data['repair_cycles']),
         repair_cycles_std=np.array(data['repair_cycles_std']),
         fill_rate=np.array(data['final_fill_rate']),
@@ -526,7 +558,7 @@ def main():
     parser = argparse.ArgumentParser(description='Analyze complete algorithm move batch scaling')
     
     # Default initial sizes from 10 to 100 with step 10
-    default_sizes = range(10, 101, 10)
+    default_sizes = range(10, 100, 10)
     default_sizes_str = ','.join(str(x) for x in default_sizes)
     
     parser.add_argument('--initial-sizes', type=str, default=default_sizes_str,
@@ -535,11 +567,11 @@ def main():
                        help='Atom occupation probability (default: 0.75 as in paper)')
     parser.add_argument('--loss', type=float, default=0.0,
                        help='Atom loss probability (default: 0.0)')
-    parser.add_argument('--trials', type=int, default=100,
+    parser.add_argument('--trials', type=int, default=5,
                        help='Number of trials per configuration')
     parser.add_argument('--seed', type=int, default=42,
                        help='Random seed for reproducibility')
-    parser.add_argument('--output', type=str, default='N_scaling_075_results',
+    parser.add_argument('--output', type=str, default='150_190_N_scaling_075_results',
                        help='Output directory for results and visualizations')
     parser.add_argument('--strategy', type=str, default='center', choices=['center', 'corner'],
                        help='Which movement strategy to analyze')

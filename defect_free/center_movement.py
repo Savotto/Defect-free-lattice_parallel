@@ -4,6 +4,7 @@ Implements strategies that place the target zone in the center of the field.
 """
 import numpy as np
 import time
+from defect_free.parallel_utils import merge_parallel_batches
 from defect_free.base_movement import BaseMovementManager
 
 class CenterMovementManager(BaseMovementManager):
@@ -1201,24 +1202,48 @@ class CenterMovementManager(BaseMovementManager):
 
         # --- Iterative spread-squeeze cycles ---
         if not early_exit:
-            max_cycles = 4
-            for cycle in range(max_cycles):
-                print(f"  Planning spread-squeeze cycle {cycle+1}/{max_cycles}...")
+            print("  Starting iterative spread-squeeze cycles...")
+            cycle = 0
+            previous_defects = int((self.simulator.field[tsr:ter, tsc:tec] == 0).sum())
+            
+            while not early_exit:
+                cycle += 1
+                print(f"  Planning spread-squeeze cycle {cycle}...")
+                
+                # Track defects before this cycle
+                defects_before_cycle = int((self.simulator.field[tsr:ter, tsc:tec] == 0).sum())
+                
+                # Spread atoms outward
                 self.simulator.movement_history = []
                 _, spread_moves, _ = self.spread_outer_atoms(show_visualization=False)
+                
                 if spread_moves == 0:
-                    print("    No more atoms to spread; breaking.")
+                    print("    No more atoms to spread; ending spread-squeeze cycles.")
                     break
+                
                 planned_moves.extend(self.simulator.movement_history)
 
+                # Column-wise centering
                 self.simulator.movement_history = []
                 self.column_wise_centering(show_visualization=False)
                 planned_moves.extend(self.simulator.movement_history)
 
+                # Check if planning lattice is perfect
                 planning_block = self.simulator.field[tsr:ter, tsc:tec]
                 if np.all(planning_block == 1):
-                    print("    Planning lattice is now perfect; skipping rest of planning.")
+                    print("    Planning lattice is now perfect; ending spread-squeeze cycles.")
                     early_exit = True
+                    break
+                
+                # Check for improvement
+                defects_after_cycle = int((planning_block == 0).sum())
+                defects_fixed = defects_before_cycle - defects_after_cycle
+                
+                print(f"    Cycle {cycle} fixed {defects_fixed} defects ({defects_after_cycle} remaining)")
+                
+                # If no improvement, stop iterating
+                if defects_fixed <= 0:
+                    print("    No further improvement; ending spread-squeeze cycles.")
                     break
 
         # --- Corner block movements ---
@@ -1247,23 +1272,47 @@ class CenterMovementManager(BaseMovementManager):
 
         # --- Final spread-squeeze cycles ---
         if not early_exit:
-            for cycle in range(3):
-                print(f"  Planning final spread-squeeze cycle {cycle+1}/3...")
+            print("  Starting final spread-squeeze cycles...")
+            cycle = 0
+            
+            while not early_exit:
+                cycle += 1
+                print(f"  Planning final spread-squeeze cycle {cycle}...")
+                
+                # Track defects before this cycle
+                defects_before_cycle = int((self.simulator.field[tsr:ter, tsc:tec] == 0).sum())
+                
+                # Spread atoms outward
                 self.simulator.movement_history = []
                 _, spread_moves, _ = self.spread_outer_atoms(show_visualization=False)
+                
                 if spread_moves == 0:
-                    print("    No more atoms to spread; breaking.")
+                    print("    No more atoms to spread; ending final spread-squeeze cycles.")
                     break
+                
                 planned_moves.extend(self.simulator.movement_history)
 
+                # Column-wise centering
                 self.simulator.movement_history = []
                 self.column_wise_centering(show_visualization=False)
                 planned_moves.extend(self.simulator.movement_history)
 
+                # Check if planning lattice is perfect
                 planning_block = self.simulator.field[tsr:ter, tsc:tec]
                 if np.all(planning_block == 1):
                     print("    Planning lattice is now perfect; skipping defect repair.")
                     early_exit = True
+                    break
+                
+                # Check for improvement
+                defects_after_cycle = int((planning_block == 0).sum())
+                defects_fixed = defects_before_cycle - defects_after_cycle
+                
+                print(f"    Final cycle {cycle} fixed {defects_fixed} defects ({defects_after_cycle} remaining)")
+                
+                # If no improvement, stop iterating
+                if defects_fixed <= 0:
+                    print("    No further improvement; ending final spread-squeeze cycles.")
                     break
 
         # --- Defect repair planning ---
@@ -1278,6 +1327,20 @@ class CenterMovementManager(BaseMovementManager):
         defects = int((planned_final_state[tsr:ter, tsc:tec] == 0).sum())
         planning_fill = 1 - defects / (self.simulator.side_length**2)
         print(f"  Planning completed: {planning_fill:.2%} fill, {defects} defects.")
+
+        # Merge batches that can be executed in parallel
+        # Record initial batch count before merging so we can report parallelism effectiveness
+        initial_planned_batches = len(planned_moves)
+        planned_moves = merge_parallel_batches(planned_moves, initial_real_lattice)
+        reduced_planned_batches = len(planned_moves)
+        # Save counts on simulator for external callers (benchmarks, logging)
+        try:
+            self.simulator.last_planned_initial_batches = int(initial_planned_batches)
+            self.simulator.last_planned_reduced_batches = int(reduced_planned_batches)
+        except Exception:
+            # If simulator does not support attribute setting for some reason, ignore
+            pass
+        print(f"  Parallelizable batches reduced to {reduced_planned_batches} steps.")
 
         # --- Phase 2: Execute on real lattice ---
         print("\nPhase 2: Executing planned movements with actual transport efficiency...")
@@ -1332,7 +1395,6 @@ class CenterMovementManager(BaseMovementManager):
         
         self.simulator.target_lattice = self.simulator.field.copy()
         return self.simulator.target_lattice, final_fill, exec_time
-
     
     def iterative_blind_center_filling(self, max_iterations=5, min_improvement=0.01, show_visualization=True):
         """
@@ -1435,5 +1497,6 @@ class CenterMovementManager(BaseMovementManager):
         print(f"Final fill rate: {final_fill_rate:.2%}")
         print(f"Remaining defects: {int(target_size * (1-final_fill_rate))}")
         print(f"Total execution time: {execution_time:.3f} seconds")
+        print(all_movement_history)
         
         return self.simulator.field.copy(), final_fill_rate, execution_time, iterations_used

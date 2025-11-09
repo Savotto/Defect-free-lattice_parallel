@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Example demonstrating atom rearrangement strategies.
 This script initializes a lattice with a random distribution of atoms and
@@ -10,16 +11,30 @@ To switch between strategies, simply edit the strategy call in the code:
 import numpy as np
 import matplotlib.pyplot as plt
 import time
-from defect_free import LatticeSimulator, LatticeVisualizer
+import sys
+from pathlib import Path
+
+# Ensure the project root is on the path so 'defect_free' can be imported
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from defect_free.simulator import LatticeSimulator
+from defect_free.visualizer import LatticeVisualizer
 
 def main():
-    # Initialize simulator with default parameters
-    # Use a fixed random seed for reproducible results
-    np.random.seed(42)
-    
-    # Configuration parameters - modify these as needed
-    lattice_size = (10, 10)
-    occupation_prob = 0.7
+    # Command-line arguments so lattice size / occupation can be changed without editing the file
+    import argparse
+    parser = argparse.ArgumentParser(description='Run movement example')
+    parser.add_argument('--size', type=int, nargs=2, metavar=('ROWS', 'COLS'),
+                        default=[20, 20], help='Lattice size as two integers: ROWS COLS (default: 20 20)')
+    parser.add_argument('--occupation', type=float, default=0.6,
+                        help='Occupation probability (default: 0.6)')
+    parser.add_argument('--seed', type=int, default=42, help='Random seed (default: 42)')
+    args = parser.parse_args()
+
+    # Initialize simulator with parameters from CLI
+    np.random.seed(args.seed)
+    lattice_size = tuple(args.size)
+    occupation_prob = args.occupation
     
     # Step 1: Initialize the lattice
     simulator = LatticeSimulator(initial_size=lattice_size, occupation_prob=occupation_prob)
@@ -29,17 +44,17 @@ def main():
     initial_atoms = np.sum(simulator.slm_lattice)
     print(f"Total available atoms: {initial_atoms}")
     
-    # Calculate maximum square size using ALL available atoms
+    # Calculate maximum square size using all available atoms
     max_square_size = simulator.calculate_max_defect_free_size()
     
     print(f"Calculated maximum target zone: {max_square_size}x{max_square_size}")
     print(f"This requires {max_square_size**2} atoms out of {initial_atoms} available")
     print(f"Using {max_square_size**2} atoms for a perfect square")
     
-    # Initialize visualizer for tracking the rearrangement
+    # Initialize visualizer for (non-interactive) tracking of the rearrangement
     visualizer = LatticeVisualizer(simulator)
     simulator.visualizer = visualizer
-    
+
     # Print initial configuration before rearrangement
     print("\nInitial configuration before rearrangement:")
     print(f"Number of atoms: {initial_atoms}")
@@ -48,10 +63,6 @@ def main():
     # Store the initial lattice for comparison
     initial_lattice = simulator.field.copy()
     
-    # Visualize initial lattice
-    visualizer.plot_lattice(initial_lattice, title="Initial Lattice")
-    plt.show(block=False)
-    
     # Step 3: Apply rearrangement method
     
     # *** CHANGE THIS LINE TO SWITCH BETWEEN STRATEGIES ***
@@ -59,7 +70,8 @@ def main():
     # - center_filling_strategy() for center filling
     # - corner_filling_strategy() for corner filling
     print("\nApplying filling strategy...")
-    final_lattice, fill_rate, execution_time = simulator.movement_manager.center_filling_strategy(show_visualization=True)
+    # Run strategy without opening interactive visualization windows; we will save a GIF at the end
+    final_lattice, fill_rate, execution_time = simulator.movement_manager.center_filling_strategy(show_visualization=False)
     
     # Name of the current strategy for display purposes
     strategy_name = "Center"  # Change this if you change the strategy above
@@ -74,95 +86,12 @@ def main():
     print(f"\n{strategy_name} filling completed in {execution_time:.3f} seconds")
     print(f"Final fill rate: {fill_rate:.2%}")
     
-    # Create separate figures for initial and final lattices
-    # Initial lattice figure
-    initial_fig = plt.figure(figsize=(10, 10))
-    initial_ax = initial_fig.add_subplot(111)
-    visualizer.plot_lattice(
-        initial_lattice, 
-        title="Initial Lattice", 
-        highlight_region=target_region,
-        ax=initial_ax
-    )
-    plt.tight_layout()
-    # Save the initial lattice figure
-    initial_fig.savefig(f"{strategy_name.lower()}_initial_lattice.png", dpi=300)
-    print(f"Initial lattice saved as '{strategy_name.lower()}_initial_lattice.png'")
-    
-    # Final lattice figure
-    final_fig = plt.figure(figsize=(10, 10))
-    final_ax = final_fig.add_subplot(111)
-    visualizer.plot_lattice(
-        after_filling_lattice, 
-        title=f"After {strategy_name} Filling", 
-        highlight_region=target_region,
-        ax=final_ax
-    )
-    plt.tight_layout()
-    # Save the final lattice figure
-    final_fig.savefig(f"{strategy_name.lower()}_final_lattice.png", dpi=300)
-    print(f"Final lattice saved as '{strategy_name.lower()}_final_lattice.png'")
-    
-    # Also keep the original combined figure for comparison
-    fig, axes = plt.subplots(1, 2, figsize=(12, 6))
-    
-    # Plot initial state
-    visualizer.plot_lattice(
-        initial_lattice, 
-        title="Initial Lattice", 
-        highlight_region=target_region,
-        ax=axes[0]
-    )
-    
-    # Plot final state
-    visualizer.plot_lattice(
-        after_filling_lattice, 
-        title=f"After {strategy_name} Filling", 
-        highlight_region=target_region,
-        ax=axes[1]
-    )
-    
-    plt.tight_layout()
-    # Save the combined figure
-    fig.savefig(f"{strategy_name.lower()}_comparison.png", dpi=300)
-    print(f"Comparison figure saved as '{strategy_name.lower()}_comparison.png'")
-    
-    # Create a visualization of the defects before and after
-    fig2, axes2 = plt.subplots(1, 2, figsize=(12, 6))
-    
-    # Extract target regions
-    initial_target = initial_lattice[target_start_row:target_end_row, target_start_col:target_end_col]
-    final_target = after_filling_lattice[target_start_row:target_end_row, target_start_col:target_end_col]
-    
-    # Calculate defect counts
-    initial_defects = np.sum(initial_target == 0)
-    final_defects = np.sum(final_target == 0)
-    
-    # Create heat maps of defects
-    axes2[0].imshow(1-initial_target, cmap='Reds', vmin=0, vmax=1)
-    axes2[0].set_title(f"Initial Defects: {initial_defects}")
-    
-    axes2[1].imshow(1-final_target, cmap='Reds', vmin=0, vmax=1)
-    axes2[1].set_title(f"Remaining Defects: {final_defects}")
-    
-    for ax in axes2:
-        ax.set_xticks([])
-        ax.set_yticks([])
-    
-    plt.tight_layout()
-    
-    # Display final analysis with all metrics
-    fig_analysis = visualizer.show_final_analysis()
-    
-    plt.show()
-
-    
-    # Create the animation
-    #print("\nCreating animation of movements...")
-    #animation = visualizer.animate_movements(simulator.movement_history)
-
-    # Save the animation as a GIF
-    #visualizer.save_animation("movement_animation_center20x20.gif", fps=10)
+    # Create and save the animation GIF of movements (single visual output)
+    print("\nCreating animation of movements (GIF)...")
+    animation = visualizer.animate_movements(simulator.movement_history)
+    out_gif = f"movement_animation_{strategy_name.lower()}{lattice_size[0]}x{lattice_size[1]}.gif"
+    visualizer.save_animation(out_gif, fps=10)
+    print(f"Animation saved as {out_gif}")
 
 if __name__ == "__main__":
     main()

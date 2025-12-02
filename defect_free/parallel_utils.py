@@ -51,6 +51,64 @@ def can_parallelize_moves(field: np.ndarray, moves1: List[Move], moves2: List[Mo
                 if (r, sc) in static_atoms:
                     return False
 
+    # 2) Cross-trap prevention with static atoms
+    # Collect rows and columns with moves
+    rows_with_horizontal_moves = set()
+    cols_with_vertical_moves = set()
+    for m in moves_all:
+        sr, sc = m['from']
+        tr, tc = m['to']
+        if sr == tr:  # Horizontal move
+            rows_with_horizontal_moves.add(sr)
+        if sc == tc:  # Vertical move
+            cols_with_vertical_moves.add(sc)
+    
+    # Check for cross-trap scenarios
+    for static_r, static_c in static_atoms:
+        # Check if static atom is on an active vertical column
+        if static_c in cols_with_vertical_moves:
+            # No horizontal moves allowed at this row (would form trap)
+            if static_r in rows_with_horizontal_moves:
+                return False
+        # Check if static atom is on an active horizontal row
+        if static_r in rows_with_horizontal_moves:
+            # No vertical moves allowed at this column (would form trap)
+            if static_c in cols_with_vertical_moves:
+                return False
+    # Vertical x Vertical static-atom row blocking
+    # If a static atom sits at (r, c_static) on an active column c_static,
+    # no other column may have ANY move touching row r.
+    active_cols = {}
+    for m in moves_all:
+        sr, sc = m['from']
+        tr, tc = m['to']
+        if sc == tc:  # vertical move
+            active_cols.setdefault(sc, set()).update(range(min(sr,tr), max(sr,tr)+1))
+
+    # for each static atom, check violation
+    for (r_static, c_static) in static_atoms:
+        if c_static in active_cols:
+            # row r_static is forbidden to all OTHER active columns
+            for c2, rows2 in active_cols.items():
+                if c2 != c_static and r_static in rows2:
+                    return False
+
+    # Horizontal x Horizontal static-atom column blocking
+    active_rows = {}
+    for m in moves_all:
+        sr, sc = m['from']
+        tr, tc = m['to']
+        if sr == tr:  # horizontal move
+            active_rows.setdefault(sr, set()).update(range(min(sc,tc), max(sc,tc)+1))
+
+    for (r_static, c_static) in static_atoms:
+        if r_static in active_rows:
+            for r2, cols2 in active_rows.items():
+                if r2 != r_static and c_static in cols2:
+                    return False
+            
+
+
 
     # 4) Endpoint exclusivity
     srcs = {tuple(m['from']) for m in moves_all}

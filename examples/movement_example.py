@@ -25,7 +25,7 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description='Run movement example')
     parser.add_argument('--size', type=int, nargs=2, metavar=('ROWS', 'COLS'),
-                        default=[20, 20], help='Lattice size as two integers: ROWS COLS (default: 20 20)')
+                        default=[30, 30], help='Lattice size as two integers: ROWS COLS (default: 40 40)')
     parser.add_argument('--occupation', type=float, default=0.6,
                         help='Occupation probability (default: 0.6)')
     parser.add_argument('--seed', type=int, default=42, help='Random seed (default: 42)')

@@ -558,7 +558,7 @@ def main():
     parser = argparse.ArgumentParser(description='Analyze complete algorithm move batch scaling')
     
     # Default initial sizes from 10 to 100 with step 10
-    default_sizes = range(10, 100, 10)
+    default_sizes = range(150, 200, 10)
     default_sizes_str = ','.join(str(x) for x in default_sizes)
     
     parser.add_argument('--initial-sizes', type=str, default=default_sizes_str,
@@ -567,11 +567,11 @@ def main():
                        help='Atom occupation probability (default: 0.75 as in paper)')
     parser.add_argument('--loss', type=float, default=0.0,
                        help='Atom loss probability (default: 0.0)')
-    parser.add_argument('--trials', type=int, default=5,
+    parser.add_argument('--trials', type=int, default=10,
                        help='Number of trials per configuration')
     parser.add_argument('--seed', type=int, default=42,
                        help='Random seed for reproducibility')
-    parser.add_argument('--output', type=str, default='150_190_N_scaling_075_results',
+    parser.add_argument('--output', type=str, default='NEW_150_190_N_scaling_075_results',
                        help='Output directory for results and visualizations')
     parser.add_argument('--strategy', type=str, default='center', choices=['center', 'corner'],
                        help='Which movement strategy to analyze')

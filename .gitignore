@@ -76,6 +76,7 @@ Thumbs.db
 
 # Ignore all CSV files
 *.csv
+!tests/data/*.csv
 
 # Ignore all JSON files
 *.json
@@ -88,3 +89,4 @@ Thumbs.db
 *.npz
 
 *.txt
+!requirements.txt

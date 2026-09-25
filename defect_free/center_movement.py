@@ -13,25 +13,149 @@ class CenterMovementManager(BaseMovementManager):
     These strategies place the target zone in the center of the field and move atoms accordingly.
     """
     
+    def _resolve_square_target_region(self, side_length: int):
+        """Pick a target square near the center, optionally favoring denser windows."""
+        field_height, field_width = self.simulator.initial_size
+        center_row = (field_height - side_length) // 2
+        center_col = (field_width - side_length) // 2
+
+        constraints = self.simulator.constraints
+        occupancy_threshold = float(
+            constraints.get("low_occupancy_adaptive_target_threshold", 0.55)
+        )
+        search_radius = int(
+            constraints.get("low_occupancy_adaptive_target_search_radius", 10)
+        )
+        min_gain = int(
+            constraints.get("low_occupancy_adaptive_target_min_gain", 4)
+        )
+        adaptive_enabled = bool(
+            constraints.get("low_occupancy_adaptive_target_enabled", False)
+        )
+
+        if (
+            not adaptive_enabled
+            or self.simulator.target_shape != "square"
+            or self.simulator.occupation_prob > occupancy_threshold
+            or search_radius <= 0
+        ):
+            return (
+                center_row,
+                center_col,
+                center_row + side_length,
+                center_col + side_length,
+            )
+
+        field = self.simulator.field
+        if field is None or side_length <= 0:
+            return (
+                center_row,
+                center_col,
+                center_row + side_length,
+                center_col + side_length,
+            )
+
+        max_row_start = field_height - side_length
+        max_col_start = field_width - side_length
+        row_range = range(
+            max(0, center_row - search_radius),
+            min(max_row_start, center_row + search_radius) + 1,
+        )
+        col_range = range(
+            max(0, center_col - search_radius),
+            min(max_col_start, center_col + search_radius) + 1,
+        )
+
+        prefix = field.cumsum(axis=0).cumsum(axis=1)
+
+        def rect_sum(r0: int, c0: int, r1: int, c1: int) -> int:
+            total = int(prefix[r1 - 1, c1 - 1])
+            if r0 > 0:
+                total -= int(prefix[r0 - 1, c1 - 1])
+            if c0 > 0:
+                total -= int(prefix[r1 - 1, c0 - 1])
+            if r0 > 0 and c0 > 0:
+                total += int(prefix[r0 - 1, c0 - 1])
+            return total
+
+        centered_atoms = rect_sum(
+            center_row,
+            center_col,
+            center_row + side_length,
+            center_col + side_length,
+        )
+        best_region = (
+            center_row,
+            center_col,
+            center_row + side_length,
+            center_col + side_length,
+        )
+        best_atoms = centered_atoms
+        best_distance = 0
+
+        for row_start in row_range:
+            for col_start in col_range:
+                atoms = rect_sum(
+                    row_start,
+                    col_start,
+                    row_start + side_length,
+                    col_start + side_length,
+                )
+                distance = abs(row_start - center_row) + abs(col_start - center_col)
+                if atoms > best_atoms or (atoms == best_atoms and distance < best_distance):
+                    best_atoms = atoms
+                    best_distance = distance
+                    best_region = (
+                        row_start,
+                        col_start,
+                        row_start + side_length,
+                        col_start + side_length,
+                    )
+
+        if best_atoms - centered_atoms < min_gain:
+            return (
+                center_row,
+                center_col,
+                center_row + side_length,
+                center_col + side_length,
+            )
+
+        return best_region
+
     def initialize_target_region(self):
         """Calculate and initialize the center-based target region."""
         if self.target_region is not None:
             return  # Already initialized
             
-        field_height, field_width = self.simulator.initial_size
         side_length = self.simulator.side_length
-        
-        # Center the target region
-        start_row = (field_height - side_length) // 2
-        start_col = (field_width - side_length) // 2
-        end_row = start_row + side_length
-        end_col = start_col + side_length
-        
+        start_row, start_col, end_row, end_col = self._resolve_square_target_region(side_length)
+
+        if self.simulator.target_shape != "square":
+            raise ValueError("The paper release supports square targets only.")
+
         self.target_region = (start_row, start_col, end_row, end_col)
+        self.target_mask = np.zeros(self.simulator.field.shape, dtype=bool)
+        self.target_mask[start_row:end_row, start_col:end_col] = True
+        self.simulator.target_mask = self.target_mask.copy()
     
-    def center_atoms_in_line(self, line_idx, is_row, target_start_idx, target_end_idx):
+    def center_atoms_in_line(
+        self,
+        line_idx,
+        is_row,
+        target_start_idx,
+        target_end_idx,
+        use_split_assignment_policy=False,
+    ):
         """
-        Center atoms in a single row or column, moving from both sides toward the center.
+        Fill mask-approved target sites in a single row or column.
+
+        Target sites are taken from `self.target_mask` inside
+        [target_start_idx, target_end_idx). Source sites are any occupied sites in
+        the whole line.
+
+        When `use_split_assignment_policy` is True, sources are split by count into
+        left/right groups (new policy). Otherwise legacy lattice-side splitting is
+        used.
         
         Args:
             line_idx: Row or column index to process
@@ -42,119 +166,133 @@ class CenterMovementManager(BaseMovementManager):
         Returns:
             Number of atoms successfully moved
         """
-        # Find all atoms in this line
         if is_row:
-            atom_indices = np.where(self.simulator.field[line_idx, :] == 1)[0]
+            line = self.simulator.field[line_idx, :].tolist()
+            target_mask_line = self.target_mask[line_idx, :]
         else:
-            atom_indices = np.where(self.simulator.field[:, line_idx] == 1)[0]
-            
-        if len(atom_indices) == 0:
-            return 0  # No atoms in this line
-        
-        # Calculate the center of the target region
+            line = self.simulator.field[:, line_idx].tolist()
+            target_mask_line = self.target_mask[:, line_idx]
+
+        target_indices = [
+            idx for idx in range(target_start_idx, target_end_idx)
+            if bool(target_mask_line[idx])
+        ]
+        if not target_indices:
+            return 0
+
         center_idx = (target_start_idx + target_end_idx) // 2
-        
-        # Separate atoms into left side and right side
-        left_atoms = sorted([idx for idx in atom_indices if idx < center_idx])  # Ascending
-        right_atoms = sorted([idx for idx in atom_indices if idx >= center_idx], reverse=True)  # Descending
-        
-        # Create a working copy of the field
-        working_field = self.simulator.field.copy()
-        
-        # We'll collect all valid moves first, then execute them simultaneously
+        left_targets = [idx for idx in target_indices if idx < center_idx]
+        right_targets = [idx for idx in target_indices if idx >= center_idx]
+
+        # Build a working 1D line and collect all moves first, then execute in one batch.
+        working_line = line.copy()
         all_moves = []
         max_distance = 0
-        
-        # Process left atoms - move them toward the center
-        # Sort left targets from center outward (descending)
-        left_targets = list(range(target_start_idx, center_idx))
-        left_targets.sort(reverse=True)
-        
-        for target_idx in left_targets:
-            # Find the rightmost atom that's to the left of this target
-            # and that can move to it (path is clear)
-            best_atom_idx = None
-            
-            for atom_idx in left_atoms:
-                if atom_idx >= target_idx or working_field[line_idx if is_row else atom_idx, 
-                                           atom_idx if is_row else line_idx] == 0:
-                    # Skip if atom is already at or past target, or already moved
-                    continue
-                
-                # Check if path is clear to move right/down
-                path_clear = True
-                for i in range(atom_idx + 1, target_idx + 1):
-                    if working_field[line_idx if is_row else i, 
-                                     i if is_row else line_idx] == 1:
-                        path_clear = False
-                        break
-                
-                if path_clear:
-                    # This atom can move to the target
-                    best_atom_idx = atom_idx
+
+        def path_is_clear(from_idx, to_idx):
+            start_idx = min(from_idx, to_idx) + 1
+            end_idx = max(from_idx, to_idx)
+            return all(working_line[idx] == 0 for idx in range(start_idx, end_idx))
+
+        if use_split_assignment_policy:
+            source_indices = [idx for idx, occupied in enumerate(line) if occupied]
+            fill_count = min(len(source_indices), len(target_indices))
+            if fill_count == 0:
+                return 0
+
+            left_quota = min(len(left_targets), fill_count // 2)
+            right_quota = min(len(right_targets), fill_count - left_quota)
+
+            assigned = left_quota + right_quota
+            if assigned < fill_count:
+                remaining = fill_count - assigned
+                extra_left = min(len(left_targets) - left_quota, remaining)
+                left_quota += extra_left
+                remaining -= extra_left
+                if remaining > 0:
+                    extra_right = min(len(right_targets) - right_quota, remaining)
+                    right_quota += extra_right
+
+            left_sources = source_indices[:left_quota]
+            right_sources = source_indices[left_quota:left_quota + right_quota]
+            left_destinations = left_targets[-left_quota:] if left_quota > 0 else []
+            right_destinations = right_targets[:right_quota] if right_quota > 0 else []
+
+            pending = list(zip(left_sources, left_destinations)) + list(zip(right_sources, right_destinations))
+            while pending:
+                moved_any = False
+                next_pending = []
+                for source_idx, target_idx in pending:
+                    if source_idx == target_idx:
+                        continue
+                    if working_line[source_idx] == 0:
+                        continue
+                    if working_line[target_idx] == 1:
+                        next_pending.append((source_idx, target_idx))
+                        continue
+                    if not path_is_clear(source_idx, target_idx):
+                        next_pending.append((source_idx, target_idx))
+                        continue
+
+                    from_pos = (line_idx, source_idx) if is_row else (source_idx, line_idx)
+                    to_pos = (line_idx, target_idx) if is_row else (target_idx, line_idx)
+                    all_moves.append({'from': from_pos, 'to': to_pos})
+
+                    working_line[source_idx] = 0
+                    working_line[target_idx] = 1
+
+                    distance = abs(target_idx - source_idx)
+                    max_distance = max(max_distance, distance)
+                    moved_any = True
+
+                if not moved_any:
                     break
-            
-            if best_atom_idx is not None:
-                # Record this move for later execution
-                from_pos = (line_idx, best_atom_idx) if is_row else (best_atom_idx, line_idx)
+                pending = next_pending
+        else:
+            atom_indices = [idx for idx, occupied in enumerate(line) if occupied]
+            left_atoms = sorted([idx for idx in atom_indices if idx < center_idx])
+            right_atoms = sorted([idx for idx in atom_indices if idx >= center_idx])
+
+            for target_idx in sorted(left_targets, reverse=True):
+                if working_line[target_idx] == 1:
+                    continue
+                chosen = None
+                for atom_idx in reversed(left_atoms):
+                    if atom_idx >= target_idx:
+                        continue
+                    if path_is_clear(atom_idx, target_idx):
+                        chosen = atom_idx
+                        break
+                if chosen is None:
+                    continue
+                from_pos = (line_idx, chosen) if is_row else (chosen, line_idx)
                 to_pos = (line_idx, target_idx) if is_row else (target_idx, line_idx)
                 all_moves.append({'from': from_pos, 'to': to_pos})
-                
-                # Update working field to reflect this pending move
-                working_field[from_pos] = 0
-                working_field[to_pos] = 1
-                
-                # Track maximum distance for time calculation
-                distance = abs(target_idx - best_atom_idx)
-                max_distance = max(max_distance, distance)
-                
-                left_atoms.remove(best_atom_idx)  # Remove this atom from consideration
-        
-        # Process right atoms - move them toward the center
-        # Sort right targets from center outward (ascending)
-        right_targets = list(range(center_idx, target_end_idx))
-        right_targets.sort()
-        
-        for target_idx in right_targets:
-            # Find the leftmost atom that's to the right of this target
-            # and that can move to it (path is clear)
-            best_atom_idx = None
-            
-            for atom_idx in right_atoms:
-                if atom_idx <= target_idx or working_field[line_idx if is_row else atom_idx, 
-                                           atom_idx if is_row else line_idx] == 0:
-                    # Skip if atom is already at or past target, or already moved
+                working_line[chosen] = 0
+                working_line[target_idx] = 1
+                max_distance = max(max_distance, abs(target_idx - chosen))
+                left_atoms.remove(chosen)
+
+            for target_idx in sorted(right_targets):
+                if working_line[target_idx] == 1:
                     continue
-                
-                # Check if path is clear to move left/up
-                path_clear = True
-                for i in range(target_idx, atom_idx):
-                    if working_field[line_idx if is_row else i, 
-                                     i if is_row else line_idx] == 1:
-                        path_clear = False
+                chosen = None
+                for atom_idx in right_atoms:
+                    if atom_idx <= target_idx:
+                        continue
+                    if path_is_clear(atom_idx, target_idx):
+                        chosen = atom_idx
                         break
-                
-                if path_clear:
-                    # This atom can move to the target
-                    best_atom_idx = atom_idx
-                    break
-            
-            if best_atom_idx is not None:
-                # Record this move for later execution
-                from_pos = (line_idx, best_atom_idx) if is_row else (best_atom_idx, line_idx)
+                if chosen is None:
+                    continue
+                from_pos = (line_idx, chosen) if is_row else (chosen, line_idx)
                 to_pos = (line_idx, target_idx) if is_row else (target_idx, line_idx)
                 all_moves.append({'from': from_pos, 'to': to_pos})
-                
-                # Update working field to reflect this pending move
-                working_field[from_pos] = 0
-                working_field[to_pos] = 1
-                
-                # Track maximum distance for time calculation
-                distance = abs(target_idx - best_atom_idx)
-                max_distance = max(max_distance, distance)
-                
-                right_atoms.remove(best_atom_idx)  # Remove this atom from consideration
-        
+                working_line[chosen] = 0
+                working_line[target_idx] = 1
+                max_distance = max(max_distance, abs(target_idx - chosen))
+                right_atoms.remove(chosen)
+
         # Execute all moves in parallel
         if all_moves:
             # Calculate time based on maximum distance
@@ -177,11 +315,14 @@ class CenterMovementManager(BaseMovementManager):
             })
             
             # Update simulator's field with final state
-            self.simulator.field = updated_field.copy()
+            self.simulator.field = updated_field
         
         return len(all_moves)
+
+    def move_atoms_to_target_in_line(self, line_idx, is_row, target_start_idx, target_end_idx):
+        raise ValueError("The paper release supports square targets only.")
     
-    def axis_wise_centering(self, axis='row', show_visualization=True):
+    def axis_wise_centering(self, axis='row', show_visualization=True, use_split_assignment_policy=False):
         """
         Unified axis-wise centering strategy for atom rearrangement.
         
@@ -208,7 +349,8 @@ class CenterMovementManager(BaseMovementManager):
                     line_idx=row, 
                     is_row=True,
                     target_start_idx=target_start_col, 
-                    target_end_idx=target_end_col
+                    target_end_idx=target_end_col,
+                    use_split_assignment_policy=use_split_assignment_policy,
                 )
                 total_moves_made += moves_made
         else:  # column
@@ -217,7 +359,8 @@ class CenterMovementManager(BaseMovementManager):
                     line_idx=col, 
                     is_row=False,
                     target_start_idx=target_start_row, 
-                    target_end_idx=target_end_row
+                    target_end_idx=target_end_row,
+                    use_split_assignment_policy=use_split_assignment_policy,
                 )
                 total_moves_made += moves_made
         
@@ -231,15 +374,35 @@ class CenterMovementManager(BaseMovementManager):
         
         return self.simulator.target_lattice, execution_time
     
-    def row_wise_centering(self, show_visualization=True):
+    def row_wise_centering(self, show_visualization=True, use_split_assignment_policy=False):
         """Row-wise centering strategy (calls the unified axis_wise_centering)."""
-        return self.axis_wise_centering(axis='row', show_visualization=show_visualization)
+        return self.axis_wise_centering(
+            axis='row',
+            show_visualization=show_visualization,
+            use_split_assignment_policy=use_split_assignment_policy,
+        )
     
-    def column_wise_centering(self, show_visualization=True):
+    def column_wise_centering(self, show_visualization=True, use_split_assignment_policy=False):
         """Column-wise centering strategy (calls the unified axis_wise_centering)."""
-        return self.axis_wise_centering(axis='column', show_visualization=show_visualization)
+        return self.axis_wise_centering(
+            axis='column',
+            show_visualization=show_visualization,
+            use_split_assignment_policy=use_split_assignment_policy,
+        )
+
+    def shape_axis_wise_target_fill(self, axis='row', show_visualization=True):
+        raise ValueError("The paper release supports square targets only.")
+
+    def shape_row_wise_target_fill(self, show_visualization=True):
+        raise ValueError("The paper release supports square targets only.")
+
+    def shape_column_wise_target_fill(self, show_visualization=True):
+        raise ValueError("The paper release supports square targets only.")
+
+    def shape_filling_strategy(self, show_visualization=True):
+        raise ValueError("The paper release supports square targets only.")
     
-    def spread_outer_atoms(self, show_visualization=True):
+    def spread_outer_atoms(self, show_visualization=True, use_split_assignment_policy=False):
         """
         Spreads atoms in rows above and below the target zone outward from the center.
         Only processes atoms that are horizontally aligned with the target zone.
@@ -263,12 +426,24 @@ class CenterMovementManager(BaseMovementManager):
         
         # First process rows above the target zone
         for row in range(0, target_start_row):
-            moves_made = self.spread_atoms_in_row(row, target_start_col, target_end_col, center_col)
+            moves_made = self.spread_atoms_in_row(
+                row,
+                target_start_col,
+                target_end_col,
+                center_col,
+                use_split_assignment_policy=use_split_assignment_policy,
+            )
             total_moves_made += moves_made
             
         # Then process rows below the target zone
         for row in range(target_end_row, self.simulator.initial_size[0]):
-            moves_made = self.spread_atoms_in_row(row, target_start_col, target_end_col, center_col)
+            moves_made = self.spread_atoms_in_row(
+                row,
+                target_start_col,
+                target_end_col,
+                center_col,
+                use_split_assignment_policy=use_split_assignment_policy,
+            )
             total_moves_made += moves_made
         
         # Animate if requested
@@ -279,12 +454,20 @@ class CenterMovementManager(BaseMovementManager):
         
         return self.simulator.field.copy(), total_moves_made, execution_time
     
-    def spread_atoms_in_row(self, row, target_start_col, target_end_col, center_col):
+    def spread_atoms_in_row(
+        self,
+        row,
+        target_start_col,
+        target_end_col,
+        center_col,
+        use_split_assignment_policy=False,
+    ):
         """
         Moves atoms in a single row outside the target zone outward from the center.
         Only processes atoms that are horizontally aligned with the target zone.
-        Atoms left of the horizontal center move leftward (but not beyond left target edge),
-        atoms right of center move rightward (but not beyond right target edge).
+        Atom assignment is split by atom count (not by current side): half of the
+        atoms are assigned to the left outward slots and half to the right outward
+        slots, preserving order inside each half.
         
         Args:
             row: Row index to process
@@ -302,14 +485,6 @@ class CenterMovementManager(BaseMovementManager):
         if not atom_cols:
             return 0  # No atoms in this row within target zone horizontal bounds
         
-        # Split atoms by center column
-        left_atoms = [col for col in atom_cols if col < center_col]
-        right_atoms = [col for col in atom_cols if col >= center_col]
-        
-        # If no atoms to move, return
-        if not left_atoms and not right_atoms:
-            return 0
-        
         # Create a working copy of the field
         working_field = self.simulator.field.copy()
         moves_executed = 0
@@ -317,70 +492,108 @@ class CenterMovementManager(BaseMovementManager):
         # For parallel execution, we will collect all moves first
         all_moves = []
         max_distance = 0
-        
-        # Process left atoms - move them leftward (away from center)
-        # Sort from leftmost to rightmost to avoid collisions
-        left_atoms.sort()  # Ascending
-        
-        # Track new positions to avoid collisions
-        new_left_positions = set()
-        
-        for col in left_atoms:
-            # Calculate new position: move as far left as possible without collision
-            # but not beyond the target_start_col (left edge of target zone)
-            new_col = col
-            # Move left until reaching target edge or finding an obstacle
-            while new_col > target_start_col and working_field[row, new_col-1] == 0 and (new_col-1) not in new_left_positions:
-                new_col -= 1
-            
-            # Only add move if position changed
-            if new_col != col:
-                from_pos = (row, col)
-                to_pos = (row, new_col)
-                all_moves.append({'from': from_pos, 'to': to_pos})
-                
-                # Mark this position as used
+
+        if use_split_assignment_policy:
+            source_indices = sorted(atom_cols)
+            fill_count = len(source_indices)
+            if fill_count == 0:
+                return 0
+
+            left_slots = list(range(target_start_col, center_col))
+            right_slots = list(range(center_col, target_end_col))
+
+            left_quota = min(len(left_slots), fill_count // 2)
+            right_quota = min(len(right_slots), fill_count - left_quota)
+
+            assigned = left_quota + right_quota
+            if assigned < fill_count:
+                remaining = fill_count - assigned
+                extra_left = min(len(left_slots) - left_quota, remaining)
+                left_quota += extra_left
+                remaining -= extra_left
+                if remaining > 0:
+                    extra_right = min(len(right_slots) - right_quota, remaining)
+                    right_quota += extra_right
+
+            left_sources = source_indices[:left_quota]
+            right_sources = source_indices[left_quota:left_quota + right_quota]
+            left_destinations = left_slots[:left_quota] if left_quota > 0 else []
+            right_destinations = right_slots[-right_quota:] if right_quota > 0 else []
+
+            def path_is_clear(from_col, to_col):
+                start_col = min(from_col, to_col) + 1
+                end_col = max(from_col, to_col)
+                return all(working_field[row, col] == 0 for col in range(start_col, end_col))
+
+            pending = list(zip(left_sources, left_destinations)) + list(zip(right_sources, right_destinations))
+            while pending:
+                moved_any = False
+                next_pending = []
+                for source_col, target_col in pending:
+                    if source_col == target_col:
+                        continue
+                    if working_field[row, source_col] == 0:
+                        continue
+                    if working_field[row, target_col] == 1:
+                        next_pending.append((source_col, target_col))
+                        continue
+                    if not path_is_clear(source_col, target_col):
+                        next_pending.append((source_col, target_col))
+                        continue
+
+                    from_pos = (row, source_col)
+                    to_pos = (row, target_col)
+                    all_moves.append({'from': from_pos, 'to': to_pos})
+
+                    working_field[row, source_col] = 0
+                    working_field[row, target_col] = 1
+
+                    distance = abs(target_col - source_col)
+                    max_distance = max(max_distance, distance)
+                    moved_any = True
+
+                if not moved_any:
+                    break
+                pending = next_pending
+        else:
+            left_atoms = [col for col in atom_cols if col < center_col]
+            right_atoms = [col for col in atom_cols if col >= center_col]
+
+            left_atoms.sort()
+            new_left_positions = set()
+            for col in left_atoms:
+                new_col = col
+                while (
+                    new_col > target_start_col
+                    and working_field[row, new_col - 1] == 0
+                    and (new_col - 1) not in new_left_positions
+                ):
+                    new_col -= 1
+                if new_col == col:
+                    continue
+                all_moves.append({'from': (row, col), 'to': (row, new_col)})
                 new_left_positions.add(new_col)
-                
-                # Update working field for dependency checking
                 working_field[row, col] = 0
                 working_field[row, new_col] = 1
-                
-                # Track maximum distance for time calculation
-                distance = abs(new_col - col)
-                max_distance = max(max_distance, distance)
-        
-        # Process right atoms - move them rightward (away from center)
-        # Sort from rightmost to leftmost to avoid collisions
-        right_atoms.sort(reverse=True)  # Descending
-        
-        # Track new positions to avoid collisions
-        new_right_positions = set()
-        
-        for col in right_atoms:
-            # Calculate new position: move as far right as possible without collision
-            # but not beyond the target_end_col-1 (right edge of target zone)
-            new_col = col
-            field_width = self.simulator.initial_size[1]
-            while new_col < target_end_col - 1 and working_field[row, new_col+1] == 0 and (new_col+1) not in new_right_positions:
-                new_col += 1
-            
-            # Only add move if position changed
-            if new_col != col:
-                from_pos = (row, col)
-                to_pos = (row, new_col)
-                all_moves.append({'from': from_pos, 'to': to_pos})
-                
-                # Mark this position as used
+                max_distance = max(max_distance, abs(new_col - col))
+
+            right_atoms.sort(reverse=True)
+            new_right_positions = set()
+            for col in right_atoms:
+                new_col = col
+                while (
+                    new_col < target_end_col - 1
+                    and working_field[row, new_col + 1] == 0
+                    and (new_col + 1) not in new_right_positions
+                ):
+                    new_col += 1
+                if new_col == col:
+                    continue
+                all_moves.append({'from': (row, col), 'to': (row, new_col)})
                 new_right_positions.add(new_col)
-                
-                # Update working field for dependency checking
                 working_field[row, col] = 0
                 working_field[row, new_col] = 1
-                
-                # Track maximum distance for time calculation
-                distance = abs(new_col - col)
-                max_distance = max(max_distance, distance)
+                max_distance = max(max_distance, abs(new_col - col))
         
         # Execute all moves in parallel
         if all_moves:
@@ -435,13 +648,14 @@ class CenterMovementManager(BaseMovementManager):
         # Get field dimensions
         field_height, field_width = self.simulator.initial_size
         
-        # Calculate corner block dimensions
-        initial_height, initial_width = self.simulator.initial_size
-        initial_side = min(initial_height, initial_width)
-        side_diff = initial_side - self.simulator.side_length
-        corner_width = side_diff // 2
-        
-        if corner_width <= 0:
+        # Per-side corner widths can be asymmetric when target placement is not
+        # perfectly centered or when side differences are odd.
+        left_corner_width = target_start_col
+        right_corner_width = field_width - target_end_col
+        top_corner_height = target_start_row
+        bottom_corner_height = field_height - target_end_row
+
+        if max(left_corner_width, right_corner_width, top_corner_height, bottom_corner_height) <= 0:
             print("No corner blocks to move (initial size <= target size)")
             return self.simulator.field.copy(), 0, 0.0
         
@@ -498,10 +712,10 @@ class CenterMovementManager(BaseMovementManager):
         
         # Calculate movement offsets for each corner
         offset_map = {
-            'upper_left': (0, corner_width),     # Move right
-            'upper_right': (0, -corner_width),   # Move left
-            'lower_left': (0, corner_width),     # Move right
-            'lower_right': (0, -corner_width)    # Move left
+            'upper_left': (0, left_corner_width),      # Move right by left-corner width
+            'upper_right': (0, -right_corner_width),   # Move left by right-corner width
+            'lower_left': (0, left_corner_width),      # Move right by left-corner width
+            'lower_right': (0, -right_corner_width)    # Move left by right-corner width
         }
         
         # Prepare for movement
@@ -517,6 +731,8 @@ class CenterMovementManager(BaseMovementManager):
                 continue  # Skip empty corners
                 
             offset_row, offset_col = offset_map[corner_name]
+            if offset_col == 0:
+                continue
             can_move = True
             obstacles = []
             
@@ -695,7 +911,16 @@ class CenterMovementManager(BaseMovementManager):
 
     def center_filling_strategy(self, show_visualization=True):
         """
-        An optimized comprehensive filling strategy that combines multiple methods:
+        Center filling entry point.
+
+        By default this delegates to `blind_center_filling_strategy`, so
+        `center_filling_strategy`, `blind_center_filling_strategy` (atlas_classic),
+        and one-iteration `iterative_blind_center_filling` share identical behavior.
+
+        Set constraint `use_legacy_center_filling_strategy=True` to use the older
+        comprehensive multi-phase implementation below.
+
+        Legacy implementation summary:
         1. Apply row-wise centering and column-wise centering
         2. Next iteratively:
             a. Spreads atoms outside the target zone outward from center
@@ -715,6 +940,9 @@ class CenterMovementManager(BaseMovementManager):
         Returns:
             Tuple of (final_lattice, fill_rate, execution_time)
         """
+        if not bool(self.simulator.constraints.get("use_legacy_center_filling_strategy", False)):
+            return self.blind_center_filling_strategy(show_visualization=show_visualization)
+
         start_time = time.time()
         total_movement_history = []
         self.initialize_target_region()
@@ -725,9 +953,7 @@ class CenterMovementManager(BaseMovementManager):
         early_exit = False
         
         # Check if target zone is already defect-free
-        target_region = self.simulator.field[target_start_row:target_end_row, 
-                                            target_start_col:target_end_col]
-        initial_defects = np.sum(target_region == 0)
+        initial_defects = self.count_target_defects()
         if initial_defects == 0:
             print("Target zone is already defect-free! No movements needed.")
             self.simulator.target_lattice = self.simulator.field.copy()
@@ -754,9 +980,7 @@ class CenterMovementManager(BaseMovementManager):
             print(f"Made {row_moves_made} moves during row-wise centering")
                     
             # Check if target zone is full after row-centering
-            target_region = self.simulator.field[target_start_row:target_end_row, 
-                                                target_start_col:target_end_col]
-            defects_after_row = np.sum(target_region == 0)
+            defects_after_row = self.count_target_defects()
             print(f"Defects after row-centering: {defects_after_row}")
                     
             # Check if we've achieved perfect fill (very unlikely but check anyway)
@@ -781,9 +1005,7 @@ class CenterMovementManager(BaseMovementManager):
                 print(f"Made {col_moves_made} moves during column-wise centering")
                         
                 # Count defects after column-centering
-                target_region = self.simulator.field[target_start_row:target_end_row, 
-                                                    target_start_col:target_end_col]
-                defects_after_col = np.sum(target_region == 0)
+                defects_after_col = self.count_target_defects()
                 print(f"Defects after column-centering: {defects_after_col}")
                         
                 # Check if we've achieved perfect fill
@@ -862,9 +1084,7 @@ class CenterMovementManager(BaseMovementManager):
                     spread_squeeze_time += col_squeeze_time
                     
                     # Count defects after this iteration
-                    target_region = self.simulator.field[target_start_row:target_end_row, 
-                                                        target_start_col:target_end_col]
-                    current_defects = np.sum(target_region == 0)
+                    current_defects = self.count_target_defects()
                     
                     # Calculate improvement
                     defects_fixed = previous_defects - current_defects
@@ -919,9 +1139,7 @@ class CenterMovementManager(BaseMovementManager):
                 print(f"Corner squeeze complete in {time.time() - corner_squeeze_start_time:.3f} seconds, physical time: {physical_corner_squeeze_time:.6f} seconds")
                 
                 # Count defects after corner block movement and squeezing
-                target_region = self.simulator.field[target_start_row:target_end_row, 
-                                                    target_start_col:target_end_col]
-                defects_after_corner = np.sum(target_region == 0)
+                defects_after_corner = self.count_target_defects()
                 print(f"Defects after corner block movements: {defects_after_corner}")
                 
                 # Check if we've achieved perfect fill
@@ -987,9 +1205,7 @@ class CenterMovementManager(BaseMovementManager):
                         print(f"Post-corner column squeeze phase complete in {time.time() - col_squeeze_start_time:.3f} seconds, physical time: {physical_col_squeeze_time:.6f} seconds")
                         
                         # Count defects after this iteration
-                        target_region = self.simulator.field[target_start_row:target_end_row, 
-                                                            target_start_col:target_end_col]
-                        current_defects = np.sum(target_region == 0)
+                        current_defects = self.count_target_defects()
                         
                         # Calculate improvement
                         defects_fixed = previous_defects - current_defects
@@ -1028,9 +1244,7 @@ class CenterMovementManager(BaseMovementManager):
                 print(f"First repair attempt complete in {time.time() - repair_start_time:.3f} seconds, physical time: {physical_repair_time:.6f} seconds")
                 
                 # Count defects after initial repair
-                target_region = self.simulator.field[target_start_row:target_end_row, 
-                                                    target_start_col:target_end_col]
-                defects_after_repair = np.sum(target_region == 0)
+                defects_after_repair = self.count_target_defects()
                 print(f"Defects after first repair: {defects_after_repair}")
                 
                 # Check if we've achieved perfect fill
@@ -1073,9 +1287,7 @@ class CenterMovementManager(BaseMovementManager):
                     print(f"Squeezing complete in {time.time() - squeeze_start_time:.3f} seconds, physical time: {physical_squeeze_time:.6f} seconds")
                     
                     # Check if squeezing fixed any defects
-                    target_region = self.simulator.field[target_start_row:target_end_row, 
-                                                        target_start_col:target_end_col]
-                    defects_after_squeeze = np.sum(target_region == 0)
+                    defects_after_squeeze = self.count_target_defects()
                     defects_fixed_by_squeeze = previous_defect_count - defects_after_squeeze
                     
                     if defects_fixed_by_squeeze > 0:
@@ -1105,9 +1317,7 @@ class CenterMovementManager(BaseMovementManager):
                     print(f"Repair attempt {squeeze_repair_iteration + 1} complete in {time.time() - repair_start_time:.3f} seconds, physical time: {physical_repair_time:.6f} seconds")
                     
                     # Count defects after this repair iteration
-                    target_region = self.simulator.field[target_start_row:target_end_row, 
-                                                        target_start_col:target_end_col]
-                    current_defects = np.sum(target_region == 0)
+                    current_defects = self.count_target_defects()
                     
                     # Calculate overall improvement
                     defects_fixed = previous_defect_count - current_defects
@@ -1129,13 +1339,12 @@ class CenterMovementManager(BaseMovementManager):
                     previous_defect_count = current_defects
 
         # Calculate final fill rate
-        target_size = self.simulator.side_length ** 2
-        target_region = self.simulator.field[target_start_row:target_end_row, target_start_col:target_end_col]
-        final_defects = np.sum(target_region == 0)
+        target_size = self.get_target_size()
+        final_defects = self.count_target_defects()
         final_fill_rate = 1.0 - (final_defects / target_size)
         
         # Calculate retention rate as atoms in target zone / atoms initially loaded in the lattice
-        atoms_in_target = np.sum(target_region == 1)
+        atoms_in_target = self.count_target_atoms()
         retention_rate = atoms_in_target / self.simulator.total_atoms if self.simulator.total_atoms > 0 else 0
         
         # Calculate overall metrics
@@ -1157,12 +1366,25 @@ class CenterMovementManager(BaseMovementManager):
         print(f"Total time: {execution_time + total_physical_time:.6f} seconds")
             
         return self.simulator.target_lattice, final_fill_rate, execution_time
-    
-    def blind_center_filling_strategy(self, show_visualization=True):
+
+
+    def blind_center_filling_strategy(
+        self,
+        show_visualization=True,
+        use_batch_merging=True,
+        force_original_split_policy=False,
+    ):
         """
         A modified center-based filling strategy that pre-computes all movements on a planning
         lattice, then executes them on the real lattice with actual transport efficiency.
         """
+        movement_policy = str(self.simulator.constraints.get("movement_policy", "atlas_classic"))
+        if movement_policy != "atlas_classic":
+            raise ValueError("The paper release supports the atlas_classic policy only.")
+
+        if self.simulator.target_shape != 'square':
+            raise ValueError("The paper release supports square targets only.")
+
         start_time = time.time()
 
         # Store the initial real lattice and atom count
@@ -1178,25 +1400,65 @@ class CenterMovementManager(BaseMovementManager):
         tsr, tsc, ter, tec = self.target_region
 
         planned_moves = []
+        phase_counter = 0
+
+        def consume_phase_batches(phase_label: str) -> None:
+            nonlocal phase_counter
+            phase_counter += 1
+            phase_id = f"{phase_label}:{phase_counter}"
+            for batch in self.simulator.movement_history:
+                tagged = dict(batch)
+                tagged['phase'] = phase_id
+                planned_moves.append(tagged)
+
         early_exit = False
 
-        print("\nPhase 1: Planning movements with virtual perfect transport...")
+        shape_aware = False
+        row_center = self.row_wise_centering
+        col_center = self.column_wise_centering
+        mode_name = "square"
+        first_row_split_policy = not force_original_split_policy
+        first_col_split_policy = not force_original_split_policy
+        first_spread_split_policy = not force_original_split_policy
+
+        print(f"\nPhase 1: Planning movements with virtual perfect transport ({mode_name})...")
 
         # --- Row-wise centering ---
         print("  Planning row-wise centering...")
         self.simulator.movement_history = []
-        self.row_wise_centering(show_visualization=False)
-        planned_moves.extend(self.simulator.movement_history)
+        if shape_aware:
+            row_center(show_visualization=False)
+        else:
+            row_center(
+                show_visualization=False,
+                use_split_assignment_policy=first_row_split_policy,
+            )
+            first_row_split_policy = False
+        consume_phase_batches("row_center")
+        if shape_aware:
+            self.simulator.movement_history = []
+            discard_trapped_shape_atoms(self)
+            consume_phase_batches("row_center_discard")
 
         # --- Column-wise centering ---
         print("  Planning column-wise centering...")
         self.simulator.movement_history = []
-        self.column_wise_centering(show_visualization=False)
-        planned_moves.extend(self.simulator.movement_history)
+        if shape_aware:
+            col_center(show_visualization=False)
+        else:
+            col_center(
+                show_visualization=False,
+                use_split_assignment_policy=first_col_split_policy,
+            )
+            first_col_split_policy = False
+        consume_phase_batches("col_center")
+        if shape_aware:
+            self.simulator.movement_history = []
+            discard_trapped_shape_atoms(self)
+            consume_phase_batches("col_center_discard")
 
         # Early exit if planning copy is perfect
-        planning_block = self.simulator.field[tsr:ter, tsc:tec]
-        if np.all(planning_block == 1):
+        if self.is_target_shape_complete():
             print("  Planning lattice is defect-free; skipping further planning.")
             early_exit = True
 
@@ -1204,39 +1466,52 @@ class CenterMovementManager(BaseMovementManager):
         if not early_exit:
             print("  Starting iterative spread-squeeze cycles...")
             cycle = 0
-            previous_defects = int((self.simulator.field[tsr:ter, tsc:tec] == 0).sum())
+            previous_defects = self.count_target_defects()
             
             while not early_exit:
                 cycle += 1
                 print(f"  Planning spread-squeeze cycle {cycle}...")
                 
                 # Track defects before this cycle
-                defects_before_cycle = int((self.simulator.field[tsr:ter, tsc:tec] == 0).sum())
+                defects_before_cycle = self.count_target_defects()
                 
                 # Spread atoms outward
                 self.simulator.movement_history = []
-                _, spread_moves, _ = self.spread_outer_atoms(show_visualization=False)
+                _, spread_moves, _ = self.spread_outer_atoms(
+                    show_visualization=False,
+                    use_split_assignment_policy=first_spread_split_policy,
+                )
+                first_spread_split_policy = False
                 
                 if spread_moves == 0:
                     print("    No more atoms to spread; ending spread-squeeze cycles.")
                     break
                 
-                planned_moves.extend(self.simulator.movement_history)
+                consume_phase_batches(f"spread_cycle{cycle}_spread")
 
                 # Column-wise centering
                 self.simulator.movement_history = []
-                self.column_wise_centering(show_visualization=False)
-                planned_moves.extend(self.simulator.movement_history)
+                if shape_aware:
+                    col_center(show_visualization=False)
+                else:
+                    col_center(
+                        show_visualization=False,
+                        use_split_assignment_policy=first_col_split_policy,
+                    )
+                consume_phase_batches(f"spread_cycle{cycle}_col_center")
+                if shape_aware:
+                    self.simulator.movement_history = []
+                    discard_trapped_shape_atoms(self)
+                    consume_phase_batches(f"spread_cycle{cycle}_discard")
 
                 # Check if planning lattice is perfect
-                planning_block = self.simulator.field[tsr:ter, tsc:tec]
-                if np.all(planning_block == 1):
+                if self.is_target_shape_complete():
                     print("    Planning lattice is now perfect; ending spread-squeeze cycles.")
                     early_exit = True
                     break
                 
                 # Check for improvement
-                defects_after_cycle = int((planning_block == 0).sum())
+                defects_after_cycle = self.count_target_defects()
                 defects_fixed = defects_before_cycle - defects_after_cycle
                 
                 print(f"    Cycle {cycle} fixed {defects_fixed} defects ({defects_after_cycle} remaining)")
@@ -1251,10 +1526,13 @@ class CenterMovementManager(BaseMovementManager):
             print("  Planning corner block movements...")
             self.simulator.movement_history = []
             self.move_corner_blocks(show_visualization=False)
-            planned_moves.extend(self.simulator.movement_history)
+            consume_phase_batches("corner_blocks")
+            if shape_aware:
+                self.simulator.movement_history = []
+                discard_trapped_shape_atoms(self)
+                consume_phase_batches("corner_blocks_discard")
 
-            planning_block = self.simulator.field[tsr:ter, tsc:tec]
-            if np.all(planning_block == 1):
+            if self.is_target_shape_complete():
                 print("    Planning lattice is now perfect after corner moves.")
                 early_exit = True
 
@@ -1262,11 +1540,20 @@ class CenterMovementManager(BaseMovementManager):
         if not early_exit:
             print("  Planning final column-wise centering...")
             self.simulator.movement_history = []
-            self.column_wise_centering(show_visualization=False)
-            planned_moves.extend(self.simulator.movement_history)
+            if shape_aware:
+                col_center(show_visualization=False)
+            else:
+                col_center(
+                    show_visualization=False,
+                    use_split_assignment_policy=first_col_split_policy,
+                )
+            consume_phase_batches("final_col_center")
+            if shape_aware:
+                self.simulator.movement_history = []
+                discard_trapped_shape_atoms(self)
+                consume_phase_batches("final_col_center_discard")
 
-            planning_block = self.simulator.field[tsr:ter, tsc:tec]
-            if np.all(planning_block == 1):
+            if self.is_target_shape_complete():
                 print("    Planning lattice is now perfect after final centering.")
                 early_exit = True
 
@@ -1280,32 +1567,45 @@ class CenterMovementManager(BaseMovementManager):
                 print(f"  Planning final spread-squeeze cycle {cycle}...")
                 
                 # Track defects before this cycle
-                defects_before_cycle = int((self.simulator.field[tsr:ter, tsc:tec] == 0).sum())
+                defects_before_cycle = self.count_target_defects()
                 
                 # Spread atoms outward
                 self.simulator.movement_history = []
-                _, spread_moves, _ = self.spread_outer_atoms(show_visualization=False)
+                _, spread_moves, _ = self.spread_outer_atoms(
+                    show_visualization=False,
+                    use_split_assignment_policy=first_spread_split_policy,
+                )
+                first_spread_split_policy = False
                 
                 if spread_moves == 0:
                     print("    No more atoms to spread; ending final spread-squeeze cycles.")
                     break
                 
-                planned_moves.extend(self.simulator.movement_history)
+                consume_phase_batches(f"final_spread_cycle{cycle}_spread")
 
                 # Column-wise centering
                 self.simulator.movement_history = []
-                self.column_wise_centering(show_visualization=False)
-                planned_moves.extend(self.simulator.movement_history)
+                if shape_aware:
+                    col_center(show_visualization=False)
+                else:
+                    col_center(
+                        show_visualization=False,
+                        use_split_assignment_policy=first_col_split_policy,
+                    )
+                consume_phase_batches(f"final_spread_cycle{cycle}_col_center")
+                if shape_aware:
+                    self.simulator.movement_history = []
+                    discard_trapped_shape_atoms(self)
+                    consume_phase_batches(f"final_spread_cycle{cycle}_discard")
 
                 # Check if planning lattice is perfect
-                planning_block = self.simulator.field[tsr:ter, tsc:tec]
-                if np.all(planning_block == 1):
+                if self.is_target_shape_complete():
                     print("    Planning lattice is now perfect; skipping defect repair.")
                     early_exit = True
                     break
                 
                 # Check for improvement
-                defects_after_cycle = int((planning_block == 0).sum())
+                defects_after_cycle = self.count_target_defects()
                 defects_fixed = defects_before_cycle - defects_after_cycle
                 
                 print(f"    Final cycle {cycle} fixed {defects_fixed} defects ({defects_after_cycle} remaining)")
@@ -1316,31 +1616,54 @@ class CenterMovementManager(BaseMovementManager):
                     break
 
         # --- Defect repair planning ---
-        if not early_exit:
+        disable_defect_repair = bool(
+            self.simulator.constraints.get("disable_defect_repair_planning", False)
+        )
+        if not early_exit and disable_defect_repair:
+            print("  Planning defect repair disabled; skipping.")
+        elif not early_exit:
             print("  Planning defect repair...")
             self.simulator.movement_history = []
             self.repair_defects(show_visualization=False)
-            planned_moves.extend(self.simulator.movement_history)
+            consume_phase_batches("defect_repair")
+            if shape_aware:
+                self.simulator.movement_history = []
+                discard_trapped_shape_atoms(self)
+                consume_phase_batches("defect_repair_discard")
 
         # Save planned final state and fill rate
         planned_final_state = self.simulator.field.copy()
-        defects = int((planned_final_state[tsr:ter, tsc:tec] == 0).sum())
-        planning_fill = 1 - defects / (self.simulator.side_length**2)
-        print(f"  Planning completed: {planning_fill:.2%} fill, {defects} defects.")
+        defects = self.count_target_defects(planned_final_state)
+        excess = self.count_excess_atoms_in_target_region(planned_final_state)
+        planning_fill = 1 - defects / max(self.get_target_size(), 1)
+        print(f"  Planning completed: {planning_fill:.2%} fill, {defects} defects, {excess} excess atoms.")
 
-        # Merge batches that can be executed in parallel
-        # Record initial batch count before merging so we can report parallelism effectiveness
+        # Optionally merge batches that can be executed in parallel
+        # Record initial batch count so we can report parallelism effectiveness.
         initial_planned_batches = len(planned_moves)
-        planned_moves = merge_parallel_batches(planned_moves, initial_real_lattice)
+        planned_type_counts = {}
+        for batch in planned_moves:
+            batch_type = batch.get('type', '')
+            planned_type_counts[batch_type] = planned_type_counts.get(batch_type, 0) + 1
+        if use_batch_merging:
+            planned_moves = merge_parallel_batches(
+                planned_moves,
+                initial_real_lattice,
+                policy=str(self.simulator.constraints.get("batch_merge_policy", "phase_aware")),
+            )
         reduced_planned_batches = len(planned_moves)
         # Save counts on simulator for external callers (benchmarks, logging)
         try:
             self.simulator.last_planned_initial_batches = int(initial_planned_batches)
             self.simulator.last_planned_reduced_batches = int(reduced_planned_batches)
+            self.simulator.last_planned_type_counts = dict(planned_type_counts)
         except Exception:
             # If simulator does not support attribute setting for some reason, ignore
             pass
-        print(f"  Parallelizable batches reduced to {reduced_planned_batches} steps.")
+        if use_batch_merging:
+            print(f"  Parallelizable batches reduced to {reduced_planned_batches} steps.")
+        else:
+            print(f"  Batch merging disabled; keeping {reduced_planned_batches} planned steps.")
 
         # --- Phase 2: Execute on real lattice ---
         print("\nPhase 2: Executing planned movements with actual transport efficiency...")
@@ -1351,6 +1674,26 @@ class CenterMovementManager(BaseMovementManager):
         for idx, batch in enumerate(planned_moves, 1):
             moves = batch.get('moves', [])
             if not moves:
+                continue
+
+            if batch.get('type') == 'discard_shape_atom':
+                current = self.simulator.field.copy()
+                discarded_moves = []
+                for move in moves:
+                    pos = move['from']
+                    if current[pos] == 1:
+                        current[pos] = 0
+                        discarded_moves.append(move)
+                if discarded_moves:
+                    self.simulator.movement_history.append({
+                        'type': 'discard_shape_atom',
+                        'moves': discarded_moves,
+                        'state': current.copy(),
+                        'time': 0.0,
+                        'successful': len(discarded_moves),
+                        'failed': 0,
+                    })
+                    self.simulator.field = current
                 continue
 
             # filter out invalid moves
@@ -1378,15 +1721,18 @@ class CenterMovementManager(BaseMovementManager):
                 print(f"  Executed batch {idx}/{len(planned_moves)}: "
                     f"{len(succ)} succeeded, {len(fail)} failed")
 
+        if shape_aware:
+            discard_trapped_shape_atoms(self)
+
         # Compute final metrics
-        final_block = self.simulator.field[tsr:ter, tsc:tec]
-        final_defects = int((final_block == 0).sum())
-        final_fill = 1 - final_defects / (self.simulator.side_length**2)
-        retention = final_block.sum() / initial_total_atoms if initial_total_atoms else 0
+        final_defects = self.count_target_defects()
+        final_excess = self.count_excess_atoms_in_target_region()
+        final_fill = 1 - final_defects / max(self.get_target_size(), 1)
+        retention = self.count_target_atoms() / initial_total_atoms if initial_total_atoms else 0
         exec_time = time.time() - start_time
 
         print(f"\nBlind center filling completed in {exec_time:.3f}s:")
-        print(f"  Final fill rate: {final_fill:.2%}, defects: {final_defects}")
+        print(f"  Final fill rate: {final_fill:.2%}, defects: {final_defects}, excess atoms: {final_excess}")
         print(f"  Retention rate: {retention:.2%}")
         
         # Animate if requested
@@ -1396,15 +1742,23 @@ class CenterMovementManager(BaseMovementManager):
         self.simulator.target_lattice = self.simulator.field.copy()
         return self.simulator.target_lattice, final_fill, exec_time
     
-    def iterative_blind_center_filling(self, max_iterations=5, min_improvement=0.01, show_visualization=True):
+    def iterative_blind_center_filling(
+        self,
+        max_iterations=5,
+        min_improvement=0.0,
+        show_visualization=True,
+        use_batch_merging=True,
+    ):
         """
         Iteratively applies the blind center filling strategy until the maximum iterations 
         are reached or no meaningful improvement is made, always using the latest lattice.
         
         Args:
-            max_iterations: Maximum number of iterations to attempt
-            min_improvement: Minimum improvement in fill rate to continue iterations
+            max_iterations: Maximum number of iterations to attempt. If None, run until
+                perfect fill or no meaningful improvement.
+            min_improvement: Minimum improvement in fill rate to count as progress
             show_visualization: Whether to visualize the final rearrangement
+            use_batch_merging: Whether to merge compatible movement batches
             
         Returns:
             Tuple of (final_lattice, fill_rate, execution_time, iterations_used)
@@ -1415,7 +1769,7 @@ class CenterMovementManager(BaseMovementManager):
         self.initialize_target_region()
         target_region = self.target_region
         target_start_row, target_start_col, target_end_row, target_end_col = target_region
-        target_size = (target_end_row - target_start_row) * (target_end_col - target_start_col)
+        target_size = self.get_target_size()
         
         # Store the original state just for reporting purposes
         original_total_atoms = np.sum(self.simulator.field)
@@ -1424,22 +1778,56 @@ class CenterMovementManager(BaseMovementManager):
         fill_rates = []
         iterations_used = 0
         all_movement_history = []
+        iteration_stats = []
+        no_improvement_streak = 0
+        use_hybrid_first_iteration_only = bool(
+            self.simulator.constraints.get(
+                "atlas_classic_use_hybrid_first_iteration_only",
+                True,
+            )
+        )
+        use_original_split_policy = bool(
+            self.simulator.constraints.get(
+                "atlas_classic_use_original_split_policy",
+                False,
+            )
+        )
+        # Near-perfect grace: allow a few extra retries when only a tiny number of
+        # defects remain and progress has temporarily stalled.
+        near_perfect_defect_threshold = 1
+        near_perfect_extra_iterations_allowed = int(
+            self.simulator.constraints.get("near_perfect_grace_iterations", 1)
+        )
+        near_perfect_extra_iterations_used = 0
         
         print("\nStarting Iterative Blind Center Filling Strategy")
         print(f"Target region size: {self.simulator.side_length}x{self.simulator.side_length}")
         print(f"Target positions: {target_size}")
         print(f"Initial atoms: {original_total_atoms}")
         
-        # Iterate for a maximum number of iterations
-        for iteration in range(1, max_iterations + 1):
-            print(f"\nIteration {iteration}/{max_iterations}:")
+        # Iterate for a maximum number of iterations (or indefinitely when max_iterations=None)
+        iteration = 0
+        while True:
+            iteration += 1
+            if max_iterations is None:
+                print(f"\nIteration {iteration}/unbounded:")
+            else:
+                print(f"\nIteration {iteration}/{max_iterations}:")
             
             # Reset movement history for this iteration
             self.simulator.movement_history = []
             
             # Run the blind center filling strategy on the current lattice state
             iteration_start_time = time.time()
-            final_lattice, fill_rate, _ = self.blind_center_filling_strategy(show_visualization=False)
+            force_original_split_policy = bool(
+                use_original_split_policy
+                or (use_hybrid_first_iteration_only and iteration > 1)
+            )
+            final_lattice, fill_rate, _ = self.blind_center_filling_strategy(
+                show_visualization=False,
+                use_batch_merging=use_batch_merging,
+                force_original_split_policy=force_original_split_policy,
+            )
             
             # Save the movement history from this iteration with iteration marker
             iteration_history = self.simulator.movement_history.copy()
@@ -1451,11 +1839,24 @@ class CenterMovementManager(BaseMovementManager):
             iterations_used = iteration
             
             # Calculate fill rate to verify
-            target_zone = self.simulator.field[target_start_row:target_end_row, 
-                                            target_start_col:target_end_col]
-            defects = np.sum(target_zone == 0)
+            defects = self.count_target_defects()
             actual_fill_rate = 1.0 - (defects / target_size)
             fill_rates.append(actual_fill_rate)
+            iteration_physical_time = float(sum(move.get('time', 0.0) for move in iteration_history))
+            iteration_moves = int(len(iteration_history))
+            atoms_in_target = int(self.count_target_atoms())
+            retention_rate = (atoms_in_target / original_total_atoms) if original_total_atoms > 0 else 0.0
+            iteration_stats.append({
+                'iteration': iteration,
+                'computational_time': float(iteration_time),
+                'physical_time': iteration_physical_time,
+                'total_time': float(iteration_time + iteration_physical_time),
+                'moves': iteration_moves,
+                'fill_rate': float(actual_fill_rate),
+                'defects': int(defects),
+                'atoms_in_target': atoms_in_target,
+                'retention_rate': float(retention_rate),
+            })
             
             print(f"Fill rate: {actual_fill_rate:.2%}")
             print(f"Defects remaining: {defects} out of {target_size} positions")
@@ -1471,18 +1872,44 @@ class CenterMovementManager(BaseMovementManager):
                 improvement = actual_fill_rate - fill_rates[-2]
                 print(f"Improvement: {improvement:.2%}")
                 
-                # Stop if improvement is below threshold
-                if improvement < min_improvement:
-                    print(f"Improvement ({improvement:.2%}) below threshold ({min_improvement:.2%}) - stopping iterations")
-                    break
+                # Stop only after two consecutive iterations with no meaningful improvement.
+                if improvement <= min_improvement:
+                    no_improvement_streak += 1
+                    print(
+                        f"No-improvement streak: {no_improvement_streak}/2 "
+                        f"(threshold: {min_improvement:.2%})"
+                    )
+                    if no_improvement_streak >= 2:
+                        defects_remaining = defects
+                        if (
+                            defects_remaining <= near_perfect_defect_threshold
+                            and near_perfect_extra_iterations_used < near_perfect_extra_iterations_allowed
+                        ):
+                            near_perfect_extra_iterations_used += 1
+                            no_improvement_streak = 0
+                            print(
+                                f"Near-perfect grace iteration {near_perfect_extra_iterations_used}/"
+                                f"{near_perfect_extra_iterations_allowed} "
+                                f"(defects remaining: {defects_remaining})"
+                            )
+                        else:
+                            print(
+                                f"Improvement at/below threshold for two consecutive iterations "
+                                f"({improvement:.2%} <= {min_improvement:.2%}) - stopping iterations"
+                            )
+                            break
+                else:
+                    no_improvement_streak = 0
             
             # Check if we've reached the maximum iterations
-            if iteration == max_iterations:
+            if max_iterations is not None and iteration == max_iterations:
                 print(f"Reached maximum iterations ({max_iterations})")
+                break
         
         # Store all movement history for visualization
         self.simulator.movement_history = all_movement_history
         self.simulator.target_lattice = self.simulator.field.copy()
+        self.simulator.last_iteration_stats = iteration_stats
         
         # Visualize the final result if requested
         if show_visualization and self.simulator.visualizer:
@@ -1492,11 +1919,11 @@ class CenterMovementManager(BaseMovementManager):
         execution_time = time.time() - start_time
         final_fill_rate = fill_rates[-1]
         
+        max_iterations_label = "unbounded" if max_iterations is None else str(max_iterations)
         print(f"\nIterative Blind Center Filling Results:")
-        print(f"Iterations used: {iterations_used}/{max_iterations}")
+        print(f"Iterations used: {iterations_used}/{max_iterations_label}")
         print(f"Final fill rate: {final_fill_rate:.2%}")
         print(f"Remaining defects: {int(target_size * (1-final_fill_rate))}")
         print(f"Total execution time: {execution_time:.3f} seconds")
-        print(all_movement_history)
         
         return self.simulator.field.copy(), final_fill_rate, execution_time, iterations_used

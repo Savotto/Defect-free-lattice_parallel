@@ -41,6 +41,7 @@ class LatticeVisualizer:
     
     def plot_lattice(self, lattice: np.ndarray, title: str = 'Atom Lattice', 
                     highlight_region: Optional[Tuple[int, int, int, int]] = None,
+                    highlight_mask: Optional[np.ndarray] = None,
                     show_grid: bool = True, ax=None):
         """
         Plot a single lattice state with atoms as circles and SLM-traps as rings.
@@ -48,7 +49,8 @@ class LatticeVisualizer:
         Args:
             lattice: 2D numpy array representing the lattice
             title: Plot title
-            highlight_region: (start_row, start_col, end_row, end_col) to highlight
+            highlight_region: (start_row, start_col, end_row, end_col) bounding box to highlight
+            highlight_mask: Boolean mask of target sites to highlight
             show_grid: Whether to show grid lines
             ax: Optional matplotlib axis to plot on
         """
@@ -87,6 +89,20 @@ class LatticeVisualizer:
                                fill=False, edgecolor=self.colors['target'], 
                                linewidth=2, linestyle='--')
             ax.add_patch(rect)
+
+        if highlight_mask is not None:
+            target_rows, target_cols = np.where(highlight_mask)
+            for row, col in zip(target_rows, target_cols):
+                ax.add_patch(
+                    plt.Rectangle(
+                        (col - 0.5, row - 0.5),
+                        1,
+                        1,
+                        facecolor=self.colors['target'],
+                        edgecolor='none',
+                        alpha=0.12,
+                    )
+                )
         
         # Add SLM-trap rings at all lattice positions
         for row in range(rows):
@@ -142,6 +158,7 @@ class LatticeVisualizer:
             self.plot_lattice(state, 
                             title=f"Movement Animation - Step {frame}/{len(states)-1}",
                             highlight_region=self.simulator.movement_manager.target_region,
+                            highlight_mask=self.simulator.target_mask,
                             ax=ax)
             
             # Draw arrows for movements in the current frame
@@ -210,21 +227,19 @@ class LatticeVisualizer:
         # Final lattice with target region
         self.plot_lattice(self.simulator.target_lattice,
                          title="Final Lattice State",
-                         highlight_region=self.simulator.movement_manager.target_region, 
+                         highlight_region=self.simulator.movement_manager.target_region,
+                         highlight_mask=self.simulator.target_mask,
                          ax=axes[0, 1])
         
         # Defect visualization
-        if self.simulator.movement_manager.target_region:
-            start_row, start_col, end_row, end_col = self.simulator.movement_manager.target_region
-            target = self.simulator.target_lattice[start_row:end_row, start_col:end_col]
-            
-            # Create mask showing defects in red
-            defect_mask = np.zeros(target.shape + (3,))
-            defect_mask[target == 0] = [1, 0, 0]  # Red for defects
-            
+        if self.simulator.target_mask is not None:
+            defect_mask = np.zeros(self.simulator.target_lattice.shape + (3,))
+            defects = self.simulator.target_mask & (self.simulator.target_lattice == 0)
+            defect_mask[defects] = [1, 0, 0]
+
             axes[1, 0].imshow(defect_mask)
             axes[1, 0].set_title("Defect Visualization")
-            defect_count = np.prod(target.shape) - np.sum(target)
+            defect_count = int(np.count_nonzero(defects))
             axes[1, 0].text(0.5, 0.05, f"Defects: {defect_count}", 
                           transform=axes[1, 0].transAxes, 
                           ha='center', fontsize=12)
@@ -238,12 +253,10 @@ class LatticeVisualizer:
         total_time = self.simulator.movement_time + self.simulator.total_transfer_time
         
         # Target region stats
-        if self.simulator.movement_manager.target_region:
-            start_row, start_col, end_row, end_col = self.simulator.movement_manager.target_region
-            target = self.simulator.target_lattice[start_row:end_row, start_col:end_col]
+        if self.simulator.target_mask is not None:
             initial_atoms = np.sum(self.simulator.slm_lattice)
-            target_atoms = np.sum(target)
-            target_size = target.shape[0] * target.shape[1]
+            target_atoms = int(np.count_nonzero(self.simulator.target_lattice[self.simulator.target_mask] == 1))
+            target_size = int(np.count_nonzero(self.simulator.target_mask))
             fill_rate = target_atoms / target_size if target_size > 0 else 0
             
             if total_moves == 0:

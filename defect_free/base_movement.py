@@ -15,7 +15,52 @@ class BaseMovementManager:
         """Initialize the movement manager with a reference to the simulator."""
         self.simulator = simulator
         self.target_region = None
+        self.target_mask = None
         self._movement_time_cache = {}  # Cache for movement time calculations
+
+    def reset_target_definition(self):
+        """Reset cached target geometry so it can be recomputed."""
+        self.target_region = None
+        self.target_mask = None
+
+    def get_target_mask(self):
+        """Return the boolean mask of target sites."""
+        if self.target_mask is None:
+            self.initialize_target_region()
+        return self.target_mask
+
+    def count_target_defects(self, field=None) -> int:
+        """Count empty target sites."""
+        if field is None:
+            field = self.simulator.field
+        mask = self.get_target_mask()
+        return int(np.count_nonzero((field == 0) & mask))
+
+    def count_target_atoms(self, field=None) -> int:
+        """Count occupied target sites."""
+        if field is None:
+            field = self.simulator.field
+        mask = self.get_target_mask()
+        return int(np.count_nonzero((field == 1) & mask))
+
+    def get_target_size(self) -> int:
+        """Return the number of target sites in the active mask."""
+        return int(np.count_nonzero(self.get_target_mask()))
+
+    def count_excess_atoms_in_target_region(self, field=None) -> int:
+        """Count occupied non-target sites inside the target bounding box."""
+        if field is None:
+            field = self.simulator.field
+        if self.target_region is None:
+            self.initialize_target_region()
+        target_start_row, target_start_col, target_end_row, target_end_col = self.target_region
+        target_box = np.zeros_like(field, dtype=bool)
+        target_box[target_start_row:target_end_row, target_start_col:target_end_col] = True
+        return int(np.count_nonzero((field == 1) & target_box & ~self.get_target_mask()))
+
+    def is_target_shape_complete(self, field=None) -> bool:
+        """Return True when all target sites are filled and no excess atoms remain inside the box."""
+        return self.count_target_defects(field) == 0 and self.count_excess_atoms_in_target_region(field) == 0
 
     def calculate_realistic_movement_time(self, distance: float) -> float:
         """Calculate movement time with a trapezoidal velocity profile, respecting quantum speed limits."""
@@ -74,26 +119,38 @@ class BaseMovementManager:
         
         # Make a copy of the field to work with
         updated_field = working_field.copy()
-        
+
+        successful_sources = []
+        successful_destinations = []
+        failed_sources = []
+
         for move in moves:
             from_pos = move['from']
             to_pos = move['to']
             
-            # Check if the atom is still at the from_position
-            if updated_field[from_pos] == 0:
+            # Parallel batches should be evaluated against the original field
+            # snapshot, not a partially updated one.
+            if working_field[from_pos] == 0:
                 continue
                 
             # Apply probabilistic transport check
             if np.random.random() < success_probability:
-                # Success: atom moves to new position
-                updated_field[from_pos] = 0
-                updated_field[to_pos] = 1
                 successful_moves.append(move)
+                successful_sources.append(from_pos)
+                successful_destinations.append(to_pos)
             else:
-                # Failure: atom is lost during transport
-                updated_field[from_pos] = 0  # Remove the atom
                 failed_moves.append(move)
-        
+                failed_sources.append(from_pos)
+
+        # Apply all removals first, then all insertions. This preserves atoms in
+        # true parallel chains like A->B and B->C within one batch.
+        for pos in successful_sources:
+            updated_field[pos] = 0
+        for pos in failed_sources:
+            updated_field[pos] = 0
+        for pos in successful_destinations:
+            updated_field[pos] = 1
+
         return updated_field, successful_moves, failed_moves
 
     def find_direct_path(self, field, start_pos, end_pos):
@@ -372,12 +429,13 @@ class BaseMovementManager:
         
         # Get target region boundaries
         target_start_row, target_start_col, target_end_row, target_end_col = self.target_region
+        target_mask = self.get_target_mask()
         
         # Find all defects in the target region
         defects = []
         for row in range(target_start_row, target_end_row):
             for col in range(target_start_col, target_end_col):
-                if self.simulator.field[row, col] == 0:  # Empty site = defect
+                if target_mask[row, col] and self.simulator.field[row, col] == 0:  # Empty site = defect
                     defects.append((row, col))
         
         print(f"Found {len(defects)} defects in the target region")
@@ -392,14 +450,13 @@ class BaseMovementManager:
             for col in range(self.simulator.initial_size[1]):
                 if self.simulator.field[row, col] == 1:  # Found an atom
                     # Check if it's outside the target region
-                    if not (target_start_row <= row < target_end_row and 
-                            target_start_col <= col < target_end_col):
+                    if not target_mask[row, col]:
                         available_atoms.append((row, col))
         
         print(f"Found {len(available_atoms)} available atoms outside target region")
         
         if not available_atoms:
-            fill_rate = 1.0 - (len(defects) / (self.simulator.side_length ** 2))
+            fill_rate = 1.0 - (len(defects) / max(self.get_target_size(), 1))
             print(f"No atoms available outside target region. Fill rate: {fill_rate:.2f}")
             return self.simulator.field.copy(), fill_rate, time.time() - start_time
         
@@ -417,6 +474,17 @@ class BaseMovementManager:
         
         # Create a path cache to avoid redundant path calculations
         path_cache = {}
+        constraints = self.simulator.constraints
+        repair_step_cap = None
+        if (
+            self.simulator.occupation_prob
+            <= float(constraints.get('low_occupancy_repair_cap_threshold', 0.55))
+        ):
+            configured_cap = int(
+                constraints.get('low_occupancy_repair_step_cap', 0)
+            )
+            if configured_cap > 0:
+                repair_step_cap = configured_cap
         
         # Helper function to execute a path with transport efficiency
         def execute_path(path, working_field):
@@ -437,6 +505,9 @@ class BaseMovementManager:
             
             # Execute each step in the path
             for i in range(1, len(path)):
+                if repair_step_cap is not None and len(self.simulator.movement_history) >= repair_step_cap:
+                    return False, current_field
+
                 from_pos = path[i-1]
                 to_pos = path[i]
                 
@@ -489,6 +560,9 @@ class BaseMovementManager:
         
         # Process each defect
         for defect_pos in defects:
+            if repair_step_cap is not None and len(self.simulator.movement_history) >= repair_step_cap:
+                break
+
             defect_row, defect_col = defect_pos
             
             # Skip if we've already filled this defect in a previous iteration
@@ -580,13 +654,8 @@ class BaseMovementManager:
                         available_atoms.remove(best_atom)
         
         # Calculate fill rate (percentage of target positions filled)
-        target_size = self.simulator.side_length ** 2
-        remaining_defects = 0
-        
-        for row in range(target_start_row, target_end_row):
-            for col in range(target_start_col, target_end_col):
-                if self.simulator.field[row, col] == 0:
-                    remaining_defects += 1
+        target_size = self.get_target_size()
+        remaining_defects = self.count_target_defects()
         
         fill_rate = 1.0 - (remaining_defects / target_size)
         

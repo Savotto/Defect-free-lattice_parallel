@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "atlas-neutral-atoms"
+version = "0.1.0"
+description = "Loss-aware rearrangement for defect-free neutral-atom arrays"
+requires-python = ">=3.11"
+license = {file = "LICENSE"}
+dependencies = [
+  "numpy==1.26.4",
+  "matplotlib==3.10.1",
+]
+
+[project.optional-dependencies]
+test = ["pytest==7.4.0"]
+
+[tool.setuptools]
+packages = ["defect_free"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

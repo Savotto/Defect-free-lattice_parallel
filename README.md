@@ -1,13 +1,14 @@
 # ATLAS: loss-aware neutral-atom rearrangement
 
-This repository contains the reference implementation used for the Physical
-Review Applied manuscript **es2026sep05_610**, “ATLAS: Efficient Atom
-Rearrangement for Defect-Free Neutral-Atom Quantum Arrays Under Transport
-Loss.”
+This repository contains the reference implementation and reproduction scripts
+for the manuscript “ATLAS: Efficient Atom Rearrangement for Defect-Free
+Neutral-Atom Quantum Arrays Under Transport Loss,” submitted to *Physical
+Review Applied* (`es2026sep05_610`).
 
-ATLAS plans rearrangement on a lossless virtual lattice, merges compatible
-movements into parallel AOD-safe batches, executes the batches with stochastic
-transport loss, and replans from the true post-loss state.
+ATLAS constructs rearrangement plans on an idealized virtual lattice, groups
+compatible atom movements into parallel batches satisfying acousto-optic
+deflector (AOD) constraints, simulates stochastic transport loss, and replans
+from the resulting physical lattice state.
 
 ## Paper-reproduction profile
 
